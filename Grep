@@ -1,0 +1,1 @@
+awk -v d="$(date --date='5 minutes ago' '+%Y-%m-%d %H:%M:%S')" '$0 > d && /extra/' /etc/zabbix/error.log | wc -l
