@@ -1,0 +1,83 @@
+import pandas as pd
+from pyzabbix import ZabbixAPI
+
+# Zabbix server details
+ZABBIX_SERVER = "http://your-zabbix-server-url"
+USERNAME = "your-username"
+PASSWORD = "your-password"
+HOST_NAME = "abc.com"  # Target host in Zabbix
+
+# Connect to Zabbix API
+zapi = ZabbixAPI(ZABBIX_SERVER)
+zapi.login(USERNAME, PASSWORD)
+
+def get_host_id(host_name):
+    """Retrieve the host ID for the given host name."""
+    host = zapi.host.get(filter={"host": host_name})
+    if not host:
+        raise ValueError(f"Host {host_name} not found in Zabbix.")
+    return host[0]["hostid"]
+
+def create_item(host_id, name, key):
+    """Create a Zabbix item."""
+    try:
+        item = zapi.item.create(
+            hostid=host_id,
+            name=name,
+            key_=key,
+            type=0,  # Zabbix agent
+            value_type=3,  # Numeric (unsigned)
+            delay="1m"  # Update interval
+        )
+        return item["itemids"][0]
+    except Exception as e:
+        print(f"Failed to create item {name}: {e}")
+        return None
+
+def create_trigger(item_name, host_name):
+    """Create a Zabbix trigger."""
+    try:
+        trigger = zapi.trigger.create(
+            description=f"{item_name} is down",
+            expression=f"{{{host_name}:{item_name}.sum(3)}}=0",
+            priority=2  # Minor severity
+        )
+        return trigger["triggerids"][0]
+    except Exception as e:
+        print(f"Failed to create trigger for {item_name}: {e}")
+        return None
+
+def process_excel(file_path):
+    """Process the Excel sheet and create items and triggers."""
+    df = pd.read_excel(file_path)
+    if "ms_ch" not in df.columns or "Daemon" not in df.columns:
+        raise ValueError("Required columns 'ms_ch' and 'Daemon' not found in the Excel sheet.")
+    
+    host_id = get_host_id(HOST_NAME)
+    
+    for _, row in df.iterrows():
+        column_data = row["ms_ch"]
+        daemon_name = row["Daemon"]
+        
+        item_name = daemon_name
+        item_key = f"proc.num[{column_data}]"
+        
+        # Create Zabbix item
+        item_id = create_item(host_id, item_name, item_key)
+        if item_id:
+            print(f"Item {item_name} created with ID {item_id}.")
+            
+            # Create Zabbix trigger
+            trigger_id = create_trigger(item_name, HOST_NAME)
+            if trigger_id:
+                print(f"Trigger created for {item_name} with ID {trigger_id}.")
+            else:
+                print(f"Failed to create trigger for {item_name}.")
+        else:
+            print(f"Failed to create item {item_name}.")
+
+# Input Excel file path
+excel_file_path = "path/to/your/excel_file.xlsx"
+
+# Run the script
+process_excel(excel_file_path)
