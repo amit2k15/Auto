@@ -1,0 +1,29 @@
+Subject: Clarification on Graphs and Monitoring in Zabbix
+
+Dear Srini and Team,
+
+As discussed, there is no issue with the graph and monitoring of the server using Zabbix. However, I’d like to clarify how the graphs are organized and accessed for better understanding:
+
+1. Graph Sections in Zabbix:
+When navigating to Zabbix for a specific server, you will find two sections for graphs:
+
+Highlighted Graph Section: This section allows you to view graphical data based on your selected time range.
+
+Other Graph Section: This displays a different category of graphs created for the server. However, the section highlighted by you shows an inaccessible template graph, which is only accessible to Zabbix super admins.
+
+
+
+2. Ways to Check Graphs:
+
+Via Latest Data: Navigate to the “Latest Data” section, select the required parameter, and click on the corresponding graph.
+
+Graph Section on the Monitored Server: Use this section to view all available graphs categorized for the server.
+
+
+
+
+Please review these methods and let us know if you require any additional information or assistance.
+
+Best regards,
+Amit Kumar Nayak
+
