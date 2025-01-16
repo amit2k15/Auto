@@ -1,0 +1,14 @@
+Dear Team,
+
+A few days ago, we received a request from Kedar to modify the query. Post-modification, we have observed the following:
+
+For most of the sites, the query is returning 0.
+For RG, the query is returning No data.
+To provide clarity, I have attached screenshots showing the results of both the old and modified queries for the last 10 minutes of data.
+
+Please note that there are no issues identified with Grafana.
+
+Let me know if further details are required or if any additional steps are needed.
+
+Best regards,
+Amit Kumar Nayak
