@@ -1,0 +1,65 @@
+from pyzabbix import ZabbixAPI
+import openpyxl
+
+# Zabbix API credentials
+ZABBIX_URL = "https://your-zabbix-url"
+ZABBIX_USER = "your-username"
+ZABBIX_PASSWORD = "your-password"
+
+def get_host_counts(zapi, item_filter):
+    """
+    Returns the count of enabled and disabled hosts for the given item filter.
+    """
+    hosts = zapi.host.get(output=["hostid", "status"])
+    enabled_count = 0
+    disabled_count = 0
+
+    for host in hosts:
+        items = zapi.item.get(
+            hostids=host["hostid"],
+            search=item_filter,
+            output=["key_"]
+        )
+        if items:
+            if host["status"] == "0":  # Enabled host
+                enabled_count += 1
+            elif host["status"] == "1":  # Disabled host
+                disabled_count += 1
+
+    return enabled_count, disabled_count
+
+def main():
+    # Connect to Zabbix API
+    zapi = ZabbixAPI(ZABBIX_URL)
+    zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
+
+    # Define item filters
+    filters = {
+        "Agent-based": {"key_": "agent.ping"},
+        "SNMP": {"key_": "snmp."},
+        "JVM": {"key_": "jvm."},
+        "ICMP": {"key_": "icmp."},
+        "DB Queries": {"key_": "db.odbc"},
+        "Web Scenarios": {"key_": "web.test"}
+    }
+
+    # Create an Excel workbook
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Host Counts"
+    sheet.append(["Type", "Enabled Hosts", "Disabled Hosts"])
+
+    # Get counts for each filter
+    for item_type, item_filter in filters.items():
+        enabled_count, disabled_count = get_host_counts(zapi, item_filter)
+        sheet.append([item_type, enabled_count, disabled_count])
+
+    # Save the Excel workbook
+    workbook.save("host_counts.xlsx")
+    print("Data saved to host_counts.xlsx")
+
+    # Logout from Zabbix
+    zapi.logout()
+
+if __name__ == "__main__":
+    main()
