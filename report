@@ -1,65 +1,42 @@
 from pyzabbix import ZabbixAPI
-import openpyxl
+import pandas as pd
 
-# Zabbix API credentials
-ZABBIX_URL = "https://your-zabbix-url"
-ZABBIX_USER = "your-username"
-ZABBIX_PASSWORD = "your-password"
+# Define Zabbix connection details
+ZABBIX_SERVER = 'https://your-zabbix-server.com'
+USERNAME = 'your-username'
+PASSWORD = 'your-password'
 
-def get_host_counts(zapi, item_filter):
-    """
-    Returns the count of enabled and disabled hosts for the given item filter.
-    """
-    hosts = zapi.host.get(output=["hostid", "status"])
-    enabled_count = 0
-    disabled_count = 0
+# Connect to Zabbix API
+zapi = ZabbixAPI(ZABBIX_SERVER)
+zapi.login(USERNAME, PASSWORD)
 
-    for host in hosts:
-        items = zapi.item.get(
-            hostids=host["hostid"],
-            search=item_filter,
-            output=["key_"]
+try:
+    # Get all templates
+    templates = zapi.template.get(output=['templateid', 'name'])
+
+    # Prepare data for Excel
+    data = []
+    for template in templates:
+        # Get the number of hosts linked to the current template
+        host_count = zapi.host.get(
+            templateids=template['templateid'],
+            output=['hostid']
         )
-        if items:
-            if host["status"] == "0":  # Enabled host
-                enabled_count += 1
-            elif host["status"] == "1":  # Disabled host
-                disabled_count += 1
+        data.append({
+            'Template Name': template['name'],
+            'Host Count': len(host_count)
+        })
 
-    return enabled_count, disabled_count
+    # Create a DataFrame
+    df = pd.DataFrame(data)
 
-def main():
-    # Connect to Zabbix API
-    zapi = ZabbixAPI(ZABBIX_URL)
-    zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
+    # Save to Excel
+    output_file = 'template_host_counts.xlsx'
+    df.to_excel(output_file, index=False)
+    print(f"Data saved to {output_file}")
 
-    # Define item filters
-    filters = {
-        "Agent-based": {"key_": "agent.ping"},
-        "SNMP": {"key_": "snmp."},
-        "JVM": {"key_": "jvm."},
-        "ICMP": {"key_": "icmp."},
-        "DB Queries": {"key_": "db.odbc"},
-        "Web Scenarios": {"key_": "web.test"}
-    }
+except Exception as e:
+    print(f"An error occurred: {e}")
 
-    # Create an Excel workbook
-    workbook = openpyxl.Workbook()
-    sheet = workbook.active
-    sheet.title = "Host Counts"
-    sheet.append(["Type", "Enabled Hosts", "Disabled Hosts"])
-
-    # Get counts for each filter
-    for item_type, item_filter in filters.items():
-        enabled_count, disabled_count = get_host_counts(zapi, item_filter)
-        sheet.append([item_type, enabled_count, disabled_count])
-
-    # Save the Excel workbook
-    workbook.save("host_counts.xlsx")
-    print("Data saved to host_counts.xlsx")
-
-    # Logout from Zabbix
+finally:
     zapi.logout()
-
-if __name__ == "__main__":
-    main()
