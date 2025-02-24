@@ -1,0 +1,9 @@
+Hi ,
+
+We have received a new request to replace the old PCS MZ database with the new one in monitoring, as the migration was completed last week.
+
+Earlier, we had raised a secure request to get access to the database using a non-user ID created specifically for monitoring. However, when I checked access to the new database using the same non-user ID, I was unable to connect, whereas access to the old database is still working with the same credentials.
+
+Could you please check and fix this issue? If a new secure request needs to be raised for access, kindly confirm so we can proceed accordingly.
+
+Looking forward to your response.
