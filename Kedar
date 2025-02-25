@@ -1,5 +1,11 @@
-I have cross-verified the alerts triggered from Zabbix for OWCA. As informed, there is an ongoing outage in the ELR Datacenter, which has impacted multiple applications, including Zabbix.
+Hi Michael,
 
-I have identified that a few OWCA Zabbix proxies are affected as they are hosted in ELR DC. Since ICMP monitoring depends on the ping from the Zabbix proxy to OWCA servers, we are currently observing latency issues and SSH timeout errors while trying to log in to the Zabbix proxy to manually check the ping.
+During the KT session, I explained and provided Zabbix Super Admin access to the Enterprise Zabbix team, with the exception of the Mediatype and Authentication tab access.
 
-Please let me know if you need any further details.
+The Mediatype section contains notification media such as Email, Interlink, and other supportive channels. Here in Optum, we use Email and Interlink, which include SMTP server details and Interlink API details with authentication tokens.
+
+Similarly, the Authentication tab consists of LDAP and SAML configurations, which were set up through an RITM request and are secured specifically for our instance. These configurations contain sensitive information relevant to our team.
+
+I understand that the Enterprise team has similar details on their end, which they can use post-migration. From a security standpoint, I believe it is not appropriate to share these details with another team.
+
+Could you please confirm whether I should share these details with the Enterprise team or keep them restricted? Your guidance would be greatly appreciated.
