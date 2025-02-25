@@ -1,11 +1,5 @@
-Hi Abhishek,
+I have cross-verified the alerts triggered from Zabbix for OWCA. As informed, there is an ongoing outage in the ELR Datacenter, which has impacted multiple applications, including Zabbix.
 
-We have received the incident and Joe’s ping regarding the missing DB Query alerts over the last few days.
+I have identified that a few OWCA Zabbix proxies are affected as they are hosted in ELR DC. Since ICMP monitoring depends on the ping from the Zabbix proxy to OWCA servers, we are currently observing latency issues and SSH timeout errors while trying to log in to the Zabbix proxy to manually check the ping.
 
-After a thorough investigation, I found that the monitor we created was deleted a few days back by Parul, as per the Zabbix Audit log. Additionally, I noticed that not only the DB server but also other stage and test instances for the same application were deleted.
-
-I had a discussion with Parul and Anupama regarding these changes in Zabbix, which were made without any change request or incident created by the App team. Parul mentioned that he was confused by a ticket created by Kedar and that the Splunk team had also asked him to delete these monitors from Zabbix.
-
-We do have a configuration backup from January, but restoring it will take time due to the large amount of data. Meanwhile, the application team is continuously following up on the monitoring issue.
-
-Let me know how you’d like to proceed or if you need any further details.
+Please let me know if you need any further details.
