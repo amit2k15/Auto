@@ -1,7 +1,7 @@
-Hi Team,
+Dear [Manager's Name],
 
-I have cross-verified the alerts triggered due to the Zabbix agent being unavailable for more than 3 minutes. Upon reviewing the status, I observed that the Zabbix agent availability has been fluctuating over the past 24 hours.
+As I had informed earlier, I fell down the stairs at my home two days ago and sustained an injury to my left leg. Following a doctor's consultation, I underwent an X-ray, which revealed a small crack in my left ankle. The doctor has prescribed medication and advised complete bed rest for the next 2 to 3 months.
 
-I have attached a screenshot showing the agent status over the last 7 days, where we can see the issue started from yesterday. Could you please check on the server side if any changes were made that might be causing this?
+I have attached the medical prescription for your reference. Given the situation, I kindly request approval to work from home for the recommended recovery period. Please let me know if any further information is required.
 
-To avoid multiple alerts, I am temporarily disabling alerting on the Zabbix agent until we identify the root cause. Let me know if you need any further details.
+Thank you for your understanding and support.
