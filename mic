@@ -1,0 +1,7 @@
+Hi Michael,
+
+As per our discussion today with the Enterprise team regarding the Zabbix migration, they have requested access to our ORX Prod Zabbix environment.
+
+Could you please advise whether we should provide them with basic Admin access initially until the Stage migration is successfully completed, or grant them complete Super Admin access, similar to what we have provided for the Stage instance?
+
+Looking forward to your guidance.
