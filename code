@@ -1,0 +1,39 @@
+import pandas as pd
+import re
+
+def standardize_names(name_list):
+    standardized = {}
+    
+    for name in name_list:
+        base_name = re.split(r'[-/]', name)[0].strip()
+        standardized[name] = base_name
+    
+    return standardized
+
+def process_excel(input_file, output_file):
+    # Read the input Excel file
+    df = pd.read_excel(input_file, sheet_name=0)
+    
+    if 'A' not in df.columns:
+        df.columns = df.iloc[0]  # Set first row as column header if necessary
+        df = df[1:]  # Remove header row from data
+    
+    column_a_values = df.iloc[:, 0].dropna().astype(str).tolist()
+    
+    name_mapping = standardize_names(column_a_values)
+    
+    # Creating a new DataFrame with unique standardized names
+    unique_names = list(set(name_mapping.values()))
+    new_df = pd.DataFrame(unique_names, columns=['Standardized Name'])
+    
+    # Save to a new sheet
+    with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
+        df.to_excel(writer, sheet_name='Original Data', index=False)
+        new_df.to_excel(writer, sheet_name='Standardized Names', index=False)
+    
+    print(f"Processed file saved as {output_file}")
+
+# Example usage
+input_file = "input.xlsx"  # Replace with actual file name
+output_file = "output.xlsx"
+process_excel(input_file, output_file)
