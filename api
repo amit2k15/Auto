@@ -3,18 +3,26 @@ import pandas as pd
 
 def fetch_grafana_dashboards(grafana_url, user, password, output_file):
     api_url = f"{grafana_url}/api/search"
+    headers = {"Accept": "application/json"}
     
     try:
-        response = requests.get(api_url, auth=(user, password), verify=False)
+        response = requests.get(api_url, auth=(user, password), verify=False, headers=headers)
         response.raise_for_status()
         
         dashboards = response.json()
-        dashboard_names = [dash['title'] for dash in dashboards if 'title' in dash]
+        data = []
         
-        df = pd.DataFrame(dashboard_names, columns=['Dashboard Name'])
+        for dash in dashboards:
+            data.append({
+                "Dashboard Name": dash.get("title", "Unknown"),
+                "Folder Name": dash.get("folderTitle", "General"),
+                "Owner": dash.get("owner", "Unknown")
+            })
+        
+        df = pd.DataFrame(data)
         df.to_excel(output_file, index=False)
         
-        print(f"Dashboard names saved to {output_file}")
+        print(f"Dashboard details saved to {output_file}")
     except requests.exceptions.RequestException as e:
         print(f"Error fetching dashboards: {e}")
 
