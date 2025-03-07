@@ -1,30 +1,27 @@
 import requests
 import pandas as pd
 
-# Grafana Credentials
-GRAFANA_URL = "http://your-grafana-url"
-GRAFANA_USERNAME = "your-username"
-GRAFANA_PASSWORD = "your-password"
-
-# API Endpoint to Get Dashboards
-API_ENDPOINT = f"{GRAFANA_URL}/api/search?query=&type=dash-db"
-
-# Send API Request
-response = requests.get(API_ENDPOINT, auth=(GRAFANA_USERNAME, GRAFANA_PASSWORD))
-
-# Check Response
-if response.status_code == 200:
-    dashboards = response.json()
+def fetch_grafana_dashboards(grafana_url, user, password, output_file):
+    api_url = f"{grafana_url}/api/search"
     
-    # Extracting dashboard names
-    data = [{"Dashboard Name": dash["title"], "UID": dash["uid"]} for dash in dashboards]
+    try:
+        response = requests.get(api_url, auth=(user, password), verify=False)
+        response.raise_for_status()
+        
+        dashboards = response.json()
+        dashboard_names = [dash['title'] for dash in dashboards if 'title' in dash]
+        
+        df = pd.DataFrame(dashboard_names, columns=['Dashboard Name'])
+        df.to_excel(output_file, index=False)
+        
+        print(f"Dashboard names saved to {output_file}")
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching dashboards: {e}")
 
-    # Convert to DataFrame
-    df = pd.DataFrame(data)
+# Example usage
+grafana_url = "https://your-grafana-instance.com"
+user = "your-username"
+password = "your-password"
+output_file = "grafana_dashboards.xlsx"
 
-    # Save to Excel
-    df.to_excel("grafana_dashboards.xlsx", index=False)
-    
-    print("Grafana dashboard names exported successfully to 'grafana_dashboards.xlsx'")
-else:
-    print(f"Error: {response.status_code} - {response.text}")
+fetch_grafana_dashboards(grafana_url, user, password, output_file)
