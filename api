@@ -1,0 +1,30 @@
+import requests
+import pandas as pd
+
+# Grafana Credentials
+GRAFANA_URL = "http://your-grafana-url"
+GRAFANA_USERNAME = "your-username"
+GRAFANA_PASSWORD = "your-password"
+
+# API Endpoint to Get Dashboards
+API_ENDPOINT = f"{GRAFANA_URL}/api/search?query=&type=dash-db"
+
+# Send API Request
+response = requests.get(API_ENDPOINT, auth=(GRAFANA_USERNAME, GRAFANA_PASSWORD))
+
+# Check Response
+if response.status_code == 200:
+    dashboards = response.json()
+    
+    # Extracting dashboard names
+    data = [{"Dashboard Name": dash["title"], "UID": dash["uid"]} for dash in dashboards]
+
+    # Convert to DataFrame
+    df = pd.DataFrame(data)
+
+    # Save to Excel
+    df.to_excel("grafana_dashboards.xlsx", index=False)
+    
+    print("Grafana dashboard names exported successfully to 'grafana_dashboards.xlsx'")
+else:
+    print(f"Error: {response.status_code} - {response.text}")
