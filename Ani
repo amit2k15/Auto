@@ -1,0 +1,9 @@
+Hi Anirudh,
+
+As we mentioned earlier, we are using the stage instance for certain applications to test and deploy monitoring before moving to the production instance. We disable or delete hosts only upon receiving a decommission request for specific applications.
+
+We have validated the list and are sharing the final version with you. If you identify any decommissioned hosts that are still present in Zabbix, it means we did not receive any request from the respective application team to remove them from monitoring. In such cases, I would recommend checking with the respective application team before we take any action.
+
+I believe I have already shared their contact details with you, and I understand you are planning to schedule a call with them before the migration. This would be a good opportunity to get confirmation and proceed with the removal accordingly.
+
+Let me know if you need any further assistance.
