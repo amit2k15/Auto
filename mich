@@ -1,0 +1,7 @@
+Hi Michael,
+
+As of today, we are monitoring only URL-based certificates and Cloud certificates (Keystore and Truststore) shared by the application teams. We have implemented the same alerting policy as discussed earlier, where alerts are triggered 30, 60, and 90 days before certificate expiry.
+
+So far, we have not yet automated certificate rotation on the application side via Zabbix.
+
+Could you please provide more details on your question so that I can give you the most accurate information?
