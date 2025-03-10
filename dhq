@@ -1,0 +1,16 @@
+SELECT
+    h.host AS Host,
+    hg.name AS HostGroup,
+    COALESCE(ht.tag, '') AS TagValue
+FROM
+    hosts h
+JOIN
+    hosts_groups hg ON h.hostid = hg.hostid
+JOIN
+    hstgrp g ON hg.groupid = g.groupid
+LEFT JOIN
+    host_tag ht ON h.hostid = ht.hostid AND ht.tag = 'APP'
+WHERE
+    h.status = 1  -- 1 indicates a disabled host in Zabbix
+ORDER BY
+    h.host;
