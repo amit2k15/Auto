@@ -1,69 +1,76 @@
 from pyzabbix import ZabbixAPI
-import openpyxl
+import pandas as pd
+from datetime import datetime, timedelta
 
 # Zabbix API credentials
 ZABBIX_SERVER = 'http://your_zabbix_server_url/zabbix'
 ZABBIX_USER = 'your_username'
 ZABBIX_PASSWORD = 'your_password'
 
-# Initialize Zabbix API
+# Connect to Zabbix API
 zapi = ZabbixAPI(ZABBIX_SERVER)
 zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
 
-# Fetch disabled hosts
+# Get current time and calculate the time 30 days ago
+now = datetime.now()
+thirty_days_ago = now - timedelta(days=30)
+
+# Get all disabled hosts
 disabled_hosts = zapi.host.get(
-    output=['hostid', 'host', 'name'],
-    filter={'status': '1'}  # 1 indicates disabled hosts
+    output=['hostid', 'host', 'name', 'status'],
+    filter={'status': '1'}  # 1 indicates a disabled host
 )
 
-# Prepare data for Excel
-data = []
+# Prepare a list to store the results
+results = []
+
+# Iterate through disabled hosts
 for host in disabled_hosts:
     host_id = host['hostid']
     host_name = host['host']
     host_display_name = host['name']
 
-    # Fetch host groups for the host
-    host_groups = zapi.hostgroup.get(
-        output=['name'],
-        hostids=host_id
-    )
-    host_group_names = ', '.join([group['name'] for group in host_groups])
+    # Get the last time the host was disabled
+    host_interfaces = zapi.hostinterface.get(hostids=host_id, output=['disable_until'])
+    if host_interfaces:
+        disable_until = int(host_interfaces[0]['disable_until'])
+        disable_time = datetime.fromtimestamp(disable_until)
 
-    # Fetch tags for the host
-    tags = zapi.host.get(
-        output=['tags'],
-        hostids=host_id,
-        selectTags='extend'
-    )[0].get('tags', [])
+        # Check if the host has been disabled for more than 30 days
+        if disable_time < thirty_days_ago:
+            # Get host groups
+            host_groups = zapi.hostgroup.get(
+                hostids=host_id,
+                output=['name']
+            )
+            host_group_names = [group['name'] for group in host_groups]
 
-    # Find the APP tag value
-    app_tag_value = ''
-    for tag in tags:
-        if tag['tag'] == 'APP':
-            app_tag_value = tag['value']
-            break
+            # Get tags
+            host_tags = zapi.host.get(
+                hostids=host_id,
+                output=['tags']
+            )
+            app_tag_value = ''
+            if host_tags and 'tags' in host_tags[0]:
+                for tag in host_tags[0]['tags']:
+                    if tag['tag'] == 'APP':
+                        app_tag_value = tag['value']
+                        break
 
-    # Append the data
-    data.append([host_name, host_display_name, host_group_names, app_tag_value])
+            # Append the result to the list
+            results.append({
+                'Host Name': host_name,
+                'Host Display Name': host_display_name,
+                'Host Groups': ', '.join(host_group_names),
+                'APP Tag Value': app_tag_value,
+                'Disabled Since': disable_time.strftime('%Y-%m-%d %H:%M:%S')
+            })
 
-# Create an Excel workbook and worksheet
-wb = openpyxl.Workbook()
-ws = wb.active
-ws.title = "Disabled Hosts"
+# Convert the results to a DataFrame
+df = pd.DataFrame(results)
 
-# Add headers
-ws.append(['Host Name', 'Display Name', 'Host Groups', 'APP Tag Value'])
+# Save the DataFrame to an Excel file
+output_file = 'disabled_hosts.xlsx'
+df.to_excel(output_file, index=False)
 
-# Add data rows
-for row in data:
-    ws.append(row)
-
-# Save the workbook
-excel_filename = 'disabled_hosts.xlsx'
-wb.save(excel_filename)
-
-print(f"Data exported to {excel_filename}")
-
-# Logout from Zabbix API
-zapi.user.logout()
+print(f"Data saved to {output_file}")
