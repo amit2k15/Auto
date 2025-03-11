@@ -1,0 +1,9 @@
+Dear Kedar,
+
+I hope this email finds you well.
+
+As you are aware, we are currently in the process of migrating ORx Zabbix to Ent Zabbix. As part of this initiative, we have received clear instructions from both the Enterprise team and our leadership that, going forward, we will not take ownership of Nonuser IDs used for monitoring DB queries, services, etc.
+
+To ensure a smooth migration, we kindly request you to raise Nonuser IDs from your end for each of the sites, including PCS, WMS, DOMS, P2P, and PTMS. The Enterprise team will require these credentials during the migration process.
+
+Please let us know if you need any clarification or assistance in this regard. We appreciate your prompt attention to this matter.
