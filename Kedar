@@ -1,9 +1,9 @@
-Hi Chrissy,
+Hi [Recipient's Name],
 
-We had an earlier meeting with Kedar and the Enterprise team, where we discussed the monitoring setup for the Pharmacy application. During that discussion, Anirudh from the Enterprise team raised the same concern and provided a heads-up that the Enterprise team will not take ownership of the Nonuser IDs used for monitoring.
+The Pharmacy team is still conducting the weekly monitoring meeting for all monitoring teams, along with the SLOs of each application, every Wednesday. Sheryl is also part of this meeting.
 
-Additionally, in one of our KT sessions, Ankur asked us to provide the Nonuser ID details and also raised the same concern regarding the ownership of these IDs for monitoring applications.
+Additionally, Kedar scheduled a separate meeting and invited the Enterprise team to discuss a few action items, during which we also discussed the Nonuser IDs.
 
-Currently, Pharmacy is the only application for which we are owning the Nonuser IDs. Given that there are almost 25 Nonuser IDs for Pharmacy, raising a secure request for each one will take significant time. That’s why I sent this email to Kedar as a reminder.
+As of today, all SMEs from our team continue to join the weekly monitoring call scheduled by Kedar.
 
-Let me know if you need any further clarification.
+Let me know if you need any further details.
