@@ -1,0 +1,47 @@
+from pyzabbix import ZabbixAPI
+import pandas as pd
+
+# Zabbix API credentials
+ZABBIX_SERVER = 'http://your_zabbix_server_url/zabbix'
+ZABBIX_USER = 'your_username'
+ZABBIX_PASSWORD = 'your_password'
+
+# Initialize Zabbix API
+zapi = ZabbixAPI(ZABBIX_SERVER)
+zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
+
+# Get all hosts
+hosts = zapi.host.get(output=['hostid', 'host', 'status'], selectInterfaces=['ip'], selectTags=['tag', 'value'])
+
+# Prepare data for Excel
+data = []
+
+for host in hosts:
+    host_name = host['host']
+    host_status = 'Enabled' if host['status'] == '0' else 'Disabled'
+    
+    # Get host groups
+    host_groups = zapi.hostgroup.get(hostids=host['hostid'], output=['name'])
+    host_group_names = ', '.join([group['name'] for group in host_groups])
+    
+    # Get APP tag value
+    app_tag_value = ''
+    for tag in host.get('tags', []):
+        if tag['tag'] == 'APP':
+            app_tag_value = tag['value']
+            break
+    
+    # Get Zabbix agent status
+    agent_status = zapi.host.get(hostids=host['hostid'], selectInterfaces=['available'])
+    agent_status = 'Running' if agent_status[0]['interfaces'][0]['available'] == '1' else 'Not Running'
+    
+    # Append data to the list
+    data.append([host_name, host_group_names, app_tag_value, agent_status, host_status])
+
+# Create a DataFrame
+df = pd.DataFrame(data, columns=['Host', 'Host Group', 'APP Tag Value', 'Zabbix Agent Status', 'Host Status'])
+
+# Export to Excel
+df.to_excel('zabbix_hosts_report.xlsx', index=False)
+
+print("Report generated successfully: zabbix_hosts_report.xlsx")
