@@ -1,0 +1,9 @@
+Hi Michael,
+
+The current vulnerabilities are due to the old version of RHEL servers. Since RHEL 7 is no longer supported, we are unable to update the packages required to fix these vulnerabilities. The only solution is to upgrade the OS to RHEL 9, which involves deploying new servers and migrating our proxies from the old servers to the new ones.
+
+As we mentioned earlier, this activity was pending due to the hardcoded IPs in the Zabbix agent. Our initial plan was to proceed with the upgrade post-peak season. However, the Zabbix migration to Enterprise was introduced unexpectedly, impacting our timeline. Since we are currently in the process of migration, we were unable to initiate this activity as planned.
+
+At this point, we still lack clarity on how the Enterprise team is migrating monitors from ORx to Enterprise, which is why I previously mentioned that our next steps depend on the migration process. Once the migration is completed, we can decommission our existing servers, which will resolve the vulnerabilities.
+
+Please let us know if you need any further information.
