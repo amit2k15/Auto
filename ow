@@ -1,0 +1,87 @@
+from pyzabbix import ZabbixAPI
+import openpyxl
+from openpyxl.styles import Font
+import re
+
+# Zabbix API credentials
+ZABBIX_SERVER = "https://your-zabbix-server.com/api_jsonrpc.php"
+USERNAME = "your_username"
+PASSWORD = "your_password"
+
+# Connect to Zabbix API
+zapi = ZabbixAPI(ZABBIX_SERVER)
+zapi.login(USERNAME, PASSWORD)
+print("Connected to Zabbix API Version %s" % zapi.api_version())
+
+# Create a new Excel workbook and worksheet
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.title = "Host Information"
+
+# Write headers
+headers = ["Host Name", "Hostgroup Name", "APP Tag Value"]
+for col_num, header in enumerate(headers, 1):
+    ws.cell(row=1, column=col_num, value=header).font = Font(bold=True)
+
+# Get all hostgroups containing "OWCA" (case-insensitive)
+hostgroups = zapi.hostgroup.get(output=["groupid", "name"], search={"name": "OWCA"}, searchWildcardsEnabled=True, searchByAny=True)
+
+# Compile case-insensitive regex pattern for OWCA
+owca_pattern = re.compile(r'owca', re.IGNORECASE)
+
+# Filter hostgroups to only those containing "OWCA" (case-insensitive)
+owca_hostgroups = [hg for hg in hostgroups if owca_pattern.search(hg['name'])]
+
+if not owca_hostgroups:
+    print("No hostgroups found containing 'OWCA'")
+    exit()
+
+# Get hosts in these hostgroups
+hosts = zapi.host.get(
+    output=["hostid", "host"],
+    groupids=[hg['groupid'] for hg in owca_hostgroups],
+    selectGroups=["name"],
+    selectTags=["tag", "value"]
+)
+
+row_num = 2  # Start from row 2 (after headers)
+
+for host in hosts:
+    host_name = host['host']
+    hostgroup_names = ", ".join([hg['name'] for hg in host['groups']])
+    
+    # Find APP tag value
+    app_tag_value = ""
+    if 'tags' in host:
+        for tag in host['tags']:
+            if tag['tag'].upper() == "APP":
+                app_tag_value = tag.get('value', '')
+                break
+    
+    # Write data to Excel
+    ws.cell(row=row_num, column=1, value=host_name)
+    ws.cell(row=row_num, column=2, value=hostgroup_names)
+    ws.cell(row=row_num, column=3, value=app_tag_value)
+    
+    row_num += 1
+
+# Auto-adjust column widths
+for column in ws.columns:
+    max_length = 0
+    column_letter = column[0].column_letter
+    for cell in column:
+        try:
+            if len(str(cell.value)) > max_length:
+                max_length = len(str(cell.value))
+        except:
+            pass
+    adjusted_width = (max_length + 2) * 1.2
+    ws.column_dimensions[column_letter].width = adjusted_width
+
+# Save the Excel file
+output_file = "zabbix_hosts_with_owca.xlsx"
+wb.save(output_file)
+print(f"Data exported to {output_file}")
+
+# Logout from Zabbix API
+zapi.user.logout()
