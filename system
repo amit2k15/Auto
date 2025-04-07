@@ -1,0 +1,70 @@
+from pyzabbix import ZabbixAPI
+from openpyxl import Workbook
+import getpass
+
+# Zabbix API connection details
+ZABBIX_SERVER = input("Enter Zabbix server URL (e.g., http://zabbix.example.com): ")
+ZABBIX_USER = input("Enter Zabbix username: ")
+ZABBIX_PASSWORD = getpass.getpass("Enter Zabbix password: ")
+
+# Initialize the Zabbix API
+zapi = ZabbixAPI(ZABBIX_SERVER)
+zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
+print(f"Connected to Zabbix API Version {zapi.api_version()}")
+
+try:
+    # Get all items with keys starting with 'system.run'
+    items = zapi.item.get(
+        output=['itemid', 'key_', 'hostid'],
+        search={'key_': 'system.run'},
+        startSearch=True
+    )
+
+    # Get host IDs from the items
+    host_ids = [item['hostid'] for item in items]
+
+    # Get host information including host groups
+    hosts = zapi.host.get(
+        output=['hostid', 'host', 'name'],
+        selectGroups=['groupid', 'name'],
+        hostids=host_ids
+    )
+
+    # Create a dictionary for quick host lookup
+    host_dict = {host['hostid']: host for host in hosts}
+
+    # Prepare data for Excel
+    excel_data = []
+    for item in items:
+        host = host_dict.get(item['hostid'], {})
+        host_name = host.get('host', 'N/A')
+        host_groups = ', '.join([group['name'] for group in host.get('groups', [])])
+        
+        excel_data.append({
+            'Host Name': host_name,
+            'Host Groups': host_groups,
+            'Item Key': item['key_']
+        })
+
+    # Create Excel workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Zabbix System.run Items"
+
+    # Write headers
+    headers = ['Host Name', 'Host Groups', 'Item Key']
+    ws.append(headers)
+
+    # Write data
+    for row in excel_data:
+        ws.append([row['Host Name'], row['Host Groups'], row['Item Key']])
+
+    # Save the workbook
+    excel_filename = 'zabbix_system_run_items.xlsx'
+    wb.save(excel_filename)
+    print(f"Data exported to {excel_filename}")
+
+except Exception as e:
+    print(f"An error occurred: {str(e)}")
+finally:
+    zapi.user.logout()
