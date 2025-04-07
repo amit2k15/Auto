@@ -1,70 +1,81 @@
+import pandas as pd
 from pyzabbix import ZabbixAPI
 from openpyxl import Workbook
-import getpass
+from datetime import datetime
 
-# Zabbix API connection details
-ZABBIX_SERVER = input("Enter Zabbix server URL (e.g., http://zabbix.example.com): ")
-ZABBIX_USER = input("Enter Zabbix username: ")
-ZABBIX_PASSWORD = getpass.getpass("Enter Zabbix password: ")
+# Zabbix API credentials
+ZABBIX_SERVER = 'http://your_zabbix_server/zabbix'
+ZABBIX_USER = 'your_username'
+ZABBIX_PASSWORD = 'your_password'
 
-# Initialize the Zabbix API
-zapi = ZabbixAPI(ZABBIX_SERVER)
-zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
-print(f"Connected to Zabbix API Version {zapi.api_version()}")
+def get_zabbix_data():
+    # Initialize Zabbix API connection
+    zapi = ZabbixAPI(ZABBIX_SERVER)
+    zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
+    
+    print(f"Connected to Zabbix API Version {zapi.api_version()}")
 
-try:
-    # Get all items with keys starting with 'system.run'
-    items = zapi.item.get(
-        output=['itemid', 'key_', 'hostid'],
-        search={'key_': 'system.run'},
-        startSearch=True
-    )
-
-    # Get host IDs from the items
-    host_ids = [item['hostid'] for item in items]
-
-    # Get host information including host groups
+    # Get all hosts with their groups and items
     hosts = zapi.host.get(
-        output=['hostid', 'host', 'name'],
-        selectGroups=['groupid', 'name'],
-        hostids=host_ids
+        output=['hostid', 'host', 'name', 'status'],
+        selectGroups=['name'],
+        selectItems=['itemid', 'name', 'key_', 'status'],
+        filter={'items.key_': ['system.run%']}  # Filter items starting with system.run
     )
-
-    # Create a dictionary for quick host lookup
-    host_dict = {host['hostid']: host for host in hosts}
-
-    # Prepare data for Excel
-    excel_data = []
-    for item in items:
-        host = host_dict.get(item['hostid'], {})
-        host_name = host.get('host', 'N/A')
-        host_groups = ', '.join([group['name'] for group in host.get('groups', [])])
+    
+    data = []
+    
+    for host in hosts:
+        host_name = host['host']
+        host_status = 'Enabled' if host['status'] == '0' else 'Disabled'
         
-        excel_data.append({
-            'Host Name': host_name,
-            'Host Groups': host_groups,
-            'Item Key': item['key_']
-        })
-
-    # Create Excel workbook
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Zabbix System.run Items"
-
-    # Write headers
-    headers = ['Host Name', 'Host Groups', 'Item Key']
-    ws.append(headers)
-
-    # Write data
-    for row in excel_data:
-        ws.append([row['Host Name'], row['Host Groups'], row['Item Key']])
-
-    # Save the workbook
-    excel_filename = 'zabbix_system_run_items.xlsx'
-    wb.save(excel_filename)
-    print(f"Data exported to {excel_filename}")
-
-except Exception as e:
-    print(f"An error occurred: {str(e)}")
-finally:
+        # Get group names (comma separated)
+        group_names = ', '.join([group['name'] for group in host.get('groups', [])])
+        
+        # Process items
+        for item in host.get('items', []):
+            if item['key_'].startswith('system.run'):
+                item_status = 'Enabled' if item['status'] == '0' else 'Disabled'
+                
+                data.append({
+                    'Host Name': host_name,
+                    'Host Status': host_status,
+                    'Group Name': group_names,
+                    'Item Name': item['name'],
+                    'Item Key': item['key_'],
+                    'Item Status': item_status
+                })
+    
+    # Close Zabbix API connection
     zapi.user.logout()
+    
+    return data
+
+def export_to_excel(data, filename):
+    # Create a DataFrame from the collected data
+    df = pd.DataFrame(data)
+    
+    # Reorder columns for better readability
+    df = df[['Host Name', 'Host Status', 'Group Name', 'Item Name', 'Item Key', 'Item Status']]
+    
+    # Export to Excel
+    df.to_excel(filename, index=False, engine='openpyxl')
+    print(f"Data exported to {filename}")
+
+if __name__ == '__main__':
+    try:
+        # Get data from Zabbix
+        zabbix_data = get_zabbix_data()
+        
+        if not zabbix_data:
+            print("No items found with keys starting with 'system.run'")
+        else:
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            excel_filename = f"zabbix_system_run_items_{timestamp}.xlsx"
+            
+            # Export to Excel
+            export_to_excel(zabbix_data, excel_filename)
+            
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
