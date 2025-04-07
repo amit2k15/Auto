@@ -1,93 +1,42 @@
-import pandas as pd
 from pyzabbix import ZabbixAPI
-from openpyxl import Workbook
+import pandas as pd
 
-# Zabbix API credentials
-ZABBIX_SERVER = 'http://your-zabbix-server/zabbix'
-ZABBIX_USER = 'your-username'
-ZABBIX_PASSWORD = 'your-password'
+# Zabbix credentials and URL
+ZABBIX_URL = 'http://your-zabbix-url/zabbix'
+USERNAME = 'your-username'
+PASSWORD = 'your-password'
 
-def get_zabbix_data():
-    # Initialize Zabbix API connection
-    zapi = ZabbixAPI(ZABBIX_SERVER)
-    zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
-    
-    print("Connected to Zabbix API Version %s" % zapi.api_version())
+# Connect to Zabbix API
+zapi = ZabbixAPI(ZABBIX_URL)
+zapi.login(USERNAME, PASSWORD)
 
-    # Get all hosts with their groups and items
-    hosts = zapi.host.get(
-        output=['hostid', 'host', 'status'],
-        selectGroups=['name'],
-        selectItems=['itemid', 'name', 'key_', 'status'],
-        monitored_hosts=True
-    )
+# Fetch all items with keys starting with "system.run"
+items = zapi.item.get(
+    search={'key_': 'system.run'},
+    searchWildcardsEnabled=True,
+    output=['itemid', 'name', 'key_', 'status', 'hostid'],
+    selectHosts=['hostid', 'host', 'status'],
+    selectGroups=['name']
+)
 
-    data = []
-    
-    for host in hosts:
-        host_name = host['host']
-        host_status = 'Enabled' if host['status'] == '0' else 'Disabled'
-        
-        # Get group names (host can belong to multiple groups)
-        group_names = [group['name'] for group in host.get('groups', [])]
-        groups_str = ', '.join(group_names)
-        
-        # Filter items where key starts with 'system.run'
-        for item in host.get('items', []):
-            if item['key_'].startswith('system.run'):
-                item_name = item['name']
-                item_key = item['key_']
-                item_status = 'Enabled' if item['status'] == '0' else 'Disabled'
-                
-                data.append({
-                    'Host Name': host_name,
-                    'Host Status': host_status,
-                    'Group Name': groups_str,
-                    'Item Name': item_name,
-                    'Item Key': item_key,
-                    'Item Status': item_status
-                })
-    
-    # Close API connection
-    zapi.user.logout()
-    
-    return data
+# Prepare data for export
+data = []
+for item in items:
+    host = item['hosts'][0] if item['hosts'] else {}
+    groups = item['groups']
 
-def export_to_excel(data, filename='zabbix_system_run_items.xlsx'):
-    if not data:
-        print("No data found matching the criteria.")
-        return
-    
-    # Create a DataFrame from the collected data
-    df = pd.DataFrame(data)
-    
-    # Reorder columns
-    df = df[['Host Name', 'Host Status', 'Group Name', 'Item Name', 'Item Key', 'Item Status']]
-    
-    # Export to Excel
-    writer = pd.ExcelWriter(filename, engine='openpyxl')
-    df.to_excel(writer, index=False, sheet_name='Zabbix System Run Items')
-    
-    # Auto-adjust column widths
-    worksheet = writer.sheets['Zabbix System Run Items']
-    for column in worksheet.columns:
-        max_length = 0
-        column_letter = column[0].column_letter
-        for cell in column:
-            try:
-                if len(str(cell.value)) > max_length:
-                    max_length = len(str(cell.value))
-            except:
-                pass
-        adjusted_width = (max_length + 2)
-        worksheet.column_dimensions[column_letter].width = adjusted_width
-    
-    writer.close()
-    print(f"Data exported to {filename}")
+    for group in groups:
+        data.append({
+            'Host Name': host.get('host', ''),
+            'Host Status': 'Enabled' if host.get('status') == '0' else 'Disabled',
+            'Item Name': item.get('name', ''),
+            'Item Key': item.get('key_', ''),
+            'Item Status': 'Enabled' if item.get('status') == '0' else 'Disabled',
+            'Group Name': group.get('name', '')
+        })
 
-if __name__ == '__main__':
-    try:
-        data = get_zabbix_data()
-        export_to_excel(data)
-    except Exception as e:
-        print(f"An error occurred: {str(e)}")
+# Create DataFrame and export to Excel
+df = pd.DataFrame(data)
+df.to_excel('zabbix_system_run_items.xlsx', index=False)
+
+print("Excel file 'zabbix_system_run_items.xlsx' has been created successfully.")
