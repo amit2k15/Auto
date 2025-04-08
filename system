@@ -1,171 +1,58 @@
+from pyzabbix import ZabbixAPI
 import pandas as pd
-from pyzabbix import ZabbixAPI, ZabbixAPIException
-from openpyxl import Workbook
-from datetime import datetime
-import time
-import logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Zabbix credentials
+ZABBIX_URL = 'http://your-zabbix-url/zabbix'
+USERNAME = 'your-username'
+PASSWORD = 'your-password'
 
-# Zabbix API credentials
-ZABBIX_SERVER = 'http://your-zabbix-server/zabbix'
-ZABBIX_USER = 'your-username'
-ZABBIX_PASSWORD = 'your-password'
+# Connect to Zabbix API
+zapi = ZabbixAPI(ZABBIX_URL)
+zapi.login(USERNAME, PASSWORD)
 
-def connect_zabbix():
-    """Establish connection to Zabbix API with retry logic"""
-    max_retries = 3
-    retry_delay = 5
-    
-    for attempt in range(max_retries):
-        try:
-            zapi = ZabbixAPI(ZABBIX_SERVER)
-            zapi.session.verify = False  # Disable SSL verification if needed
-            zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
-            logger.info(f"Connected to Zabbix API Version {zapi.api_version()}")
-            return zapi
-        except ZabbixAPIException as e:
-            logger.error(f"Attempt {attempt + 1} failed: {str(e)}")
-            if attempt < max_retries - 1:
-                logger.info(f"Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-            else:
-                raise
-        except Exception as e:
-            logger.error(f"Unexpected error: {str(e)}")
-            raise
+# Step 1: Get all items with keys starting with system.run
+items = zapi.item.get(
+    search={'key_': 'system.run'},
+    searchWildcardsEnabled=True,
+    output=['itemid', 'name', 'key_', 'status', 'hostid']
+)
 
-def get_zabbix_data():
-    """Retrieve data from Zabbix API"""
-    try:
-        zapi = connect_zabbix()
-        
-        # First get all host groups to minimize API calls
-        groups = zapi.hostgroup.get(output=['groupid', 'name'])
-        group_dict = {g['groupid']: g['name'] for g in groups}
-        
-        # Get hosts with basic info
-        hosts = zapi.host.get(
-            output=['hostid', 'host', 'name', 'status'],
-            selectGroups=['groupid']
-        )
-        
-        data = []
-        
-        # Process hosts in batches to avoid timeout
-        batch_size = 50
-        for i in range(0, len(hosts), batch_size):
-            batch = hosts[i:i + batch_size]
-            hostids = [h['hostid'] for h in batch]
-            
-            # Get items for the current batch of hosts
-            items = zapi.item.get(
-                output=['itemid', 'hostid', 'name', 'key_', 'status'],
-                hostids=hostids,
-                search={'key_': 'system.run'},
-                filter={'key_': ['system.run[']},
-                searchWildcardsEnabled=True
-            )
-            
-            # Process each host in the batch
-            for host in batch:
-                host_name = host['host']
-                host_status = 'Enabled' if host['status'] == '0' else 'Disabled'
-                
-                # Get group names for this host
-                group_names = [group_dict.get(g['groupid'], 'Unknown') 
-                             for g in host.get('groups', [])]
-                groups = ', '.join(group_names)
-                
-                # Find items for this host
-                host_items = [item for item in items if item['hostid'] == host['hostid']]
-                
-                for item in host_items:
-                    if item['key_'].startswith('system.run'):
-                        item_name = item['name']
-                        item_key = item['key_']
-                        item_status = 'Enabled' if item['status'] == '0' else 'Disabled'
-                        
-                        data.append({
-                            'Host Name': host_name,
-                            'Host Status': host_status,
-                            'Group Name': groups,
-                            'Item Name': item_name,
-                            'Item Key': item_key,
-                            'Item Status': item_status
-                        })
-            
-            logger.info(f"Processed batch {i//batch_size + 1}/{(len(hosts)-1)//batch_size + 1}")
-        
-        return pd.DataFrame(data)
-    
-    except ZabbixAPIException as e:
-        logger.error(f"Zabbix API Error: {str(e)}")
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        raise
-    finally:
-        try:
-            if 'zapi' in locals():
-                zapi.user.logout()
-                logger.info("Disconnected from Zabbix API")
-        except Exception as e:
-            logger.error(f"Error during logout: {str(e)}")
+# Step 2: Get unique host IDs from items
+host_ids = list({item['hostid'] for item in items})
 
-def export_to_excel(dataframe):
-    """Export DataFrame to Excel file"""
-    try:
-        if dataframe.empty:
-            logger.warning("No data to export")
-            return
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"zabbix_system_run_items_{timestamp}.xlsx"
-        
-        # Create a Pandas Excel writer using openpyxl
-        writer = pd.ExcelWriter(filename, engine='openpyxl')
-        
-        # Convert the dataframe to an Excel object
-        dataframe.to_excel(writer, index=False, sheet_name='Zabbix Items')
-        
-        # Get the workbook and worksheet for formatting
-        workbook = writer.book
-        worksheet = writer.sheets['Zabbix Items']
-        
-        # Adjust column widths
-        for column in worksheet.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = (max_length + 2) * 1.2
-            worksheet.column_dimensions[column_letter].width = adjusted_width
-        
-        # Save the Excel file
-        writer.close()
-        logger.info(f"Data successfully exported to {filename}")
-        
-    except Exception as e:
-        logger.error(f"Error exporting to Excel: {str(e)}")
-        raise
+# Step 3: Get host details
+hosts = zapi.host.get(
+    hostids=host_ids,
+    output=['host', 'status'],
+    selectGroups=['name']
+)
 
-if __name__ == "__main__":
-    try:
-        logger.info("Starting Zabbix data extraction...")
-        zabbix_data = get_zabbix_data()
-        
-        if not zabbix_data.empty:
-            logger.info(f"Found {len(zabbix_data)} items matching the criteria")
-            export_to_excel(zabbix_data)
-        else:
-            logger.warning("No items found starting with 'system.run'")
-        
-    except Exception as e:
-        logger.error(f"Script failed: {str(e)}")
+# Build a lookup table for hosts
+host_map = {}
+for host in hosts:
+    group_names = [group['name'] for group in host.get('groups', [])]
+    host_map[host['hostid']] = {
+        'host': host['host'],
+        'status': 'Enabled' if host['status'] == '0' else 'Disabled',
+        'groups': group_names
+    }
+
+# Step 4: Combine data
+data = []
+for item in items:
+    host_info = host_map.get(item['hostid'], {})
+    for group in host_info.get('groups', ['']):
+        data.append({
+            'Host Name': host_info.get('host', ''),
+            'Host Status': host_info.get('status', ''),
+            'Item Name': item.get('name', ''),
+            'Item Key': item.get('key_', ''),
+            'Item Status': 'Enabled' if item.get('status') == '0' else 'Disabled',
+            'Group Name': group
+        })
+
+# Step 5: Export to Excel
+df = pd.DataFrame(data)
+df.to_excel('zabbix_system_run_items.xlsx', index=False)
+
+print("Excel file 'zabbix_system_run_items.xlsx' has been created successfully.")
