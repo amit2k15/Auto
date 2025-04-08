@@ -2,34 +2,32 @@ from pyzabbix import ZabbixAPI
 import openpyxl
 
 # Zabbix credentials
-ZABBIX_URL = 'https://your_zabbix_url'
-USERNAME = 'your_username'
-PASSWORD = 'your_password'
+ZABBIX_URL = 'http://your-zabbix-server/zabbix'
+ZABBIX_USER = 'your-username'
+ZABBIX_PASSWORD = 'your-password'
 
 # Connect to Zabbix API
 zapi = ZabbixAPI(ZABBIX_URL)
-zapi.login(USERNAME, PASSWORD)
-print("Connected to Zabbix API")
+zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
+print("Connected to Zabbix API Version", zapi.api_version())
 
-# Prepare Excel workbook
-workbook = openpyxl.Workbook()
-sheet = workbook.active
-sheet.title = 'Host Macros'
-sheet.append(['Host Name', 'Macro Name', 'Macro Value'])
+# Fetch all hosts with macros
+hosts = zapi.host.get(output=['hostid', 'host'], selectMacros='extend')
 
-# Get all hosts
-hosts = zapi.host.get(output=['hostid', 'host'])
+# Create a new Excel workbook
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.title = 'Host Macros'
+ws.append(['Host Name', 'Macro Name', 'Macro Value'])
 
-# Loop through hosts to get macros
+# Loop through hosts and write macro details
 for host in hosts:
-    macros = zapi.usermacro.get(
-        hostids=host['hostid'],
-        output=['macro', 'value']
-    )
+    host_name = host['host']
+    macros = host.get('macros', [])
     for macro in macros:
-        sheet.append([host['host'], macro['macro'], macro['value']])
+        ws.append([host_name, macro['macro'], macro['value']])
 
-# Save Excel file
-excel_file = 'zabbix_host_macros.xlsx'
-workbook.save(excel_file)
-print(f"Data saved to {excel_file}")
+# Save the workbook
+output_file = 'zabbix_host_macros.xlsx'
+wb.save(output_file)
+print(f"Excel file '{output_file}' created successfully.")
