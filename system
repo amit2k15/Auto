@@ -1,102 +1,81 @@
+import pandas as pd
 from pyzabbix import ZabbixAPI
 from openpyxl import Workbook
-from openpyxl.styles import Font
-import getpass
+from datetime import datetime
 
 # Zabbix API credentials
-zabbix_url = input("Enter Zabbix URL (e.g., http://zabbix.example.com/zabbix): ")
-zabbix_user = input("Enter Zabbix username: ")
-zabbix_password = getpass.getpass("Enter Zabbix password: ")
+ZABBIX_SERVER = 'http://your-zabbix-server/zabbix'
+ZABBIX_USER = 'your-username'
+ZABBIX_PASSWORD = 'your-password'
 
-# Connect to Zabbix API
-try:
-    zapi = ZabbixAPI(zabbix_url)
-    zapi.login(zabbix_user, zabbix_password)
+def get_zabbix_data():
+    # Connect to Zabbix API
+    zapi = ZabbixAPI(ZABBIX_SERVER)
+    zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
     print(f"Connected to Zabbix API Version {zapi.api_version()}")
-except Exception as e:
-    print(f"Error connecting to Zabbix API: {e}")
-    exit()
 
-# Create a new Excel workbook
-wb = Workbook()
-ws = wb.active
-ws.title = "Zabbix System.run Items"
+    # Get all hosts with their groups and items
+    hosts = zapi.host.get(
+        output=['hostid', 'host', 'name', 'status'],
+        selectGroups=['name'],
+        selectItems=['itemid', 'name', 'key_', 'status'],
+        filter={'key_': ['system.run[']},  # Filter for items starting with system.run
+        search={'key_': 'system.run'},
+        searchWildcardsEnabled=True
+    )
 
-# Write headers with formatting
-headers = [
-    "Host Name", 
-    "Host Status", 
-    "Group Name", 
-    "Item Name", 
-    "Item Key", 
-    "Item Status"
-]
-
-for col_num, header in enumerate(headers, 1):
-    cell = ws.cell(row=1, column=col_num, value=header)
-    cell.font = Font(bold=True)
-
-# Get all hosts
-hosts = zapi.host.get(
-    output=["hostid", "host", "status"],
-    selectGroups=["name"],
-    selectItems=["name", "key_", "status"]
-)
-
-row_num = 2
-
-for host in hosts:
-    host_name = host['host']
-    host_status = "Enabled" if host['status'] == '0' else "Disabled"
+    data = []
     
-    # Get group names (comma separated if multiple)
-    group_names = ", ".join([group['name'] for group in host.get('groups', [])])
+    for host in hosts:
+        host_name = host['host']
+        host_status = 'Enabled' if host['status'] == '0' else 'Disabled'
+        
+        # Get group names
+        group_names = [group['name'] for group in host.get('groups', [])]
+        groups = ', '.join(group_names)
+        
+        # Process items
+        for item in host.get('items', []):
+            if item['key_'].startswith('system.run'):
+                item_name = item['name']
+                item_key = item['key_']
+                item_status = 'Enabled' if item['status'] == '0' else 'Disabled'
+                
+                data.append({
+                    'Host Name': host_name,
+                    'Host Status': host_status,
+                    'Group Name': groups,
+                    'Item Name': item_name,
+                    'Item Key': item_key,
+                    'Item Status': item_status
+                })
+
+    # Create DataFrame
+    df = pd.DataFrame(data)
     
-    # Filter items where key starts with "system.run"
-    system_run_items = [
-        item for item in host.get('items', []) 
-        if item['key_'].startswith('system.run')
-    ]
+    # Disconnect from Zabbix API
+    zapi.user.logout()
     
-    if not system_run_items:
-        # If no system.run items, just write host info with blank item columns
-        ws.cell(row=row_num, column=1, value=host_name)
-        ws.cell(row=row_num, column=2, value=host_status)
-        ws.cell(row=row_num, column=3, value=group_names)
-        row_num += 1
-    else:
-        for item in system_run_items:
-            item_name = item['name']
-            item_key = item['key_']
-            item_status = "Enabled" if item['status'] == '0' else "Disabled"
-            
-            # Write data to Excel
-            ws.cell(row=row_num, column=1, value=host_name)
-            ws.cell(row=row_num, column=2, value=host_status)
-            ws.cell(row=row_num, column=3, value=group_names)
-            ws.cell(row=row_num, column=4, value=item_name)
-            ws.cell(row=row_num, column=5, value=item_key)
-            ws.cell(row=row_num, column=6, value=item_status)
-            
-            row_num += 1
+    return df
 
-# Auto-adjust column widths
-for column in ws.columns:
-    max_length = 0
-    column_letter = column[0].column_letter
-    for cell in column:
-        try:
-            if len(str(cell.value)) > max_length:
-                max_length = len(str(cell.value))
-        except:
-            pass
-    adjusted_width = (max_length + 2) * 1.2
-    ws.column_dimensions[column_letter].width = adjusted_width
+def export_to_excel(dataframe):
+    # Generate filename with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"zabbix_system_run_items_{timestamp}.xlsx"
+    
+    # Export to Excel
+    dataframe.to_excel(filename, index=False, engine='openpyxl')
+    print(f"Data exported to {filename}")
 
-# Save the Excel file
-output_file = "zabbix_system_run_items.xlsx"
-wb.save(output_file)
-print(f"Data exported successfully to {output_file}")
-
-# Logout from Zabbix API
-zapi.user.logout()
+if __name__ == "__main__":
+    try:
+        # Get data from Zabbix
+        zabbix_data = get_zabbix_data()
+        
+        if not zabbix_data.empty:
+            # Export to Excel
+            export_to_excel(zabbix_data)
+        else:
+            print("No items found starting with 'system.run'")
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
