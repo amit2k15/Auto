@@ -1,0 +1,35 @@
+from pyzabbix import ZabbixAPI
+import pandas as pd
+
+# Zabbix credentials
+ZABBIX_URL = 'http://your-zabbix-url/zabbix'
+ZABBIX_USER = 'your-username'
+ZABBIX_PASSWORD = 'your-password'
+
+# Excel file path
+EXCEL_FILE = 'hosts_to_delete.xlsx'
+
+# Connect to Zabbix
+zapi = ZabbixAPI(ZABBIX_URL)
+zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
+print(f"Connected to Zabbix API Version {zapi.api_version()}")
+
+# Read Excel file
+df = pd.read_excel(EXCEL_FILE, sheet_name='Sheet1')
+hosts_to_delete = df['host'].dropna().tolist()
+
+# Loop and delete hosts
+for hostname in hosts_to_delete:
+    try:
+        host = zapi.host.get(filter={"host": hostname})
+        if host:
+            host_id = host[0]['hostid']
+            zapi.host.delete(host_id)
+            print(f"Deleted host: {hostname}")
+        else:
+            print(f"Host not found: {hostname}")
+    except Exception as e:
+        print(f"Error deleting host {hostname}: {e}")
+
+# Logout
+zapi.user.logout()
