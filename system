@@ -1,58 +1,46 @@
 from pyzabbix import ZabbixAPI
-import pandas as pd
+import openpyxl
 
-# Zabbix credentials
-ZABBIX_URL = 'http://your-zabbix-url/zabbix'
-USERNAME = 'your-username'
-PASSWORD = 'your-password'
+# Zabbix connection
+ZABBIX_URL = "http://your-zabbix-url/zabbix"
+ZABBIX_USER = "your-username"
+ZABBIX_PASSWORD = "your-password"
 
 # Connect to Zabbix API
 zapi = ZabbixAPI(ZABBIX_URL)
-zapi.login(USERNAME, PASSWORD)
+zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
 
-# Step 1: Get all items with keys starting with system.run
-items = zapi.item.get(
-    search={'key_': 'system.run'},
-    searchWildcardsEnabled=True,
-    output=['itemid', 'name', 'key_', 'status', 'hostid']
-)
+# Create Excel workbook
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.title = "system.run items"
+ws.append(["Host Name", "Host Group", "Host Status", "Item Name", "Item Key", "Item Status"])
 
-# Step 2: Get unique host IDs from items
-host_ids = list({item['hostid'] for item in items})
+# Get all hosts
+hosts = zapi.host.get(output=["hostid", "host", "status"],
+                      selectGroups=["name"])
 
-# Step 3: Get host details
-hosts = zapi.host.get(
-    hostids=host_ids,
-    output=['host', 'status'],
-    selectGroups=['name']
-)
-
-# Build a lookup table for hosts
-host_map = {}
 for host in hosts:
-    group_names = [group['name'] for group in host.get('groups', [])]
-    host_map[host['hostid']] = {
-        'host': host['host'],
-        'status': 'Enabled' if host['status'] == '0' else 'Disabled',
-        'groups': group_names
-    }
+    host_id = host['hostid']
+    host_name = host['host']
+    host_status = "Enabled" if host['status'] == "0" else "Disabled"
+    group_names = ", ".join([group['name'] for group in host['groups']])
 
-# Step 4: Combine data
-data = []
-for item in items:
-    host_info = host_map.get(item['hostid'], {})
-    for group in host_info.get('groups', ['']):
-        data.append({
-            'Host Name': host_info.get('host', ''),
-            'Host Status': host_info.get('status', ''),
-            'Item Name': item.get('name', ''),
-            'Item Key': item.get('key_', ''),
-            'Item Status': 'Enabled' if item.get('status') == '0' else 'Disabled',
-            'Group Name': group
-        })
+    # Get items where key_ starts with 'system.run'
+    items = zapi.item.get(hostids=host_id,
+                          search={"key_": "system.run"},
+                          output=["name", "key_", "status"],
+                          searchWildcardsEnabled=True)
 
-# Step 5: Export to Excel
-df = pd.DataFrame(data)
-df.to_excel('zabbix_system_run_items.xlsx', index=False)
+    for item in items:
+        item_name = item['name']
+        item_key = item['key_']
+        item_status = "Enabled" if item['status'] == "0" else "Disabled"
 
-print("Excel file 'zabbix_system_run_items.xlsx' has been created successfully.")
+        ws.append([host_name, group_names, host_status, item_name, item_key, item_status])
+
+# Save Excel file
+excel_file = "zabbix_system_run_items.xlsx"
+wb.save(excel_file)
+
+print(f"Data exported to {excel_file}")
