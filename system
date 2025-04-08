@@ -1,81 +1,168 @@
 import pandas as pd
-from pyzabbix import ZabbixAPI
+from pyzabbix import ZabbixAPI, ZabbixAPIException
 from openpyxl import Workbook
 from datetime import datetime
+import time
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Zabbix API credentials
 ZABBIX_SERVER = 'http://your-zabbix-server/zabbix'
 ZABBIX_USER = 'your-username'
 ZABBIX_PASSWORD = 'your-password'
 
+def connect_zabbix():
+    """Establish connection to Zabbix API with retry logic"""
+    max_retries = 3
+    retry_delay = 5  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            zapi = ZabbixAPI(ZABBIX_SERVER)
+            zapi.session.verify = False  # Disable SSL verification if needed
+            zapi.timeout = 30  # Increase timeout to 30 seconds
+            zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
+            logger.info(f"Connected to Zabbix API Version {zapi.api_version()}")
+            return zapi
+        except ZabbixAPIException as e:
+            logger.error(f"Attempt {attempt + 1} failed: {str(e)}")
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                raise
+        except Exception as e:
+            logger.error(f"Unexpected connection error: {str(e)}")
+            raise
+
 def get_zabbix_data():
-    # Connect to Zabbix API
-    zapi = ZabbixAPI(ZABBIX_SERVER)
-    zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
-    print(f"Connected to Zabbix API Version {zapi.api_version()}")
-
-    # Get all hosts with their groups and items
-    hosts = zapi.host.get(
-        output=['hostid', 'host', 'name', 'status'],
-        selectGroups=['name'],
-        selectItems=['itemid', 'name', 'key_', 'status'],
-        filter={'key_': ['system.run[']},  # Filter for items starting with system.run
-        search={'key_': 'system.run'},
-        searchWildcardsEnabled=True
-    )
-
-    data = []
-    
-    for host in hosts:
-        host_name = host['host']
-        host_status = 'Enabled' if host['status'] == '0' else 'Disabled'
+    """Retrieve host and item data from Zabbix API"""
+    try:
+        zapi = connect_zabbix()
         
-        # Get group names
-        group_names = [group['name'] for group in host.get('groups', [])]
-        groups = ', '.join(group_names)
+        # First get all host groups to minimize API calls
+        groups = zapi.hostgroup.get(output=['groupid', 'name'])
+        group_dict = {g['groupid']: g['name'] for g in groups}
         
-        # Process items
-        for item in host.get('items', []):
-            if item['key_'].startswith('system.run'):
-                item_name = item['name']
-                item_key = item['key_']
-                item_status = 'Enabled' if item['status'] == '0' else 'Disabled'
-                
-                data.append({
-                    'Host Name': host_name,
-                    'Host Status': host_status,
-                    'Group Name': groups,
-                    'Item Name': item_name,
-                    'Item Key': item_key,
-                    'Item Status': item_status
-                })
-
-    # Create DataFrame
-    df = pd.DataFrame(data)
+        # Get hosts in batches to avoid timeout
+        batch_size = 50
+        hosts = []
+        result = zapi.host.get(
+            output=['hostid'],
+            selectGroups=['groupid'],
+            limit=1
+        )
+        total_hosts = len(result)
+        
+        for i in range(0, total_hosts, batch_size):
+            batch = zapi.host.get(
+                output=['hostid', 'host', 'name', 'status'],
+                selectGroups=['groupid'],
+                selectItems=['itemid', 'name', 'key_', 'status'],
+                startSearch={'key_': 'system.run'},
+                search={'key_': 'system.run'},
+                searchWildcardsEnabled=True,
+                searchByAny=True,
+                limit=batch_size,
+                start=i
+            )
+            hosts.extend(batch)
+            logger.info(f"Fetched {len(batch)} hosts ({min(i + batch_size, total_hosts)}/{total_hosts})")
+        
+        data = []
+        
+        for host in hosts:
+            host_name = host.get('host', 'N/A')
+            host_status = 'Enabled' if host.get('status', '1') == '0' else 'Disabled'
+            
+            # Get group names from our pre-fetched dictionary
+            group_ids = [group['groupid'] for group in host.get('groups', [])]
+            group_names = [group_dict.get(gid, 'Unknown') for gid in group_ids]
+            groups = ', '.join(group_names)
+            
+            # Process items
+            for item in host.get('items', []):
+                if item.get('key_', '').startswith('system.run'):
+                    item_name = item.get('name', 'N/A')
+                    item_key = item.get('key_', 'N/A')
+                    item_status = 'Enabled' if item.get('status', '1') == '0' else 'Disabled'
+                    
+                    data.append({
+                        'Host Name': host_name,
+                        'Host Status': host_status,
+                        'Group Name': groups,
+                        'Item Name': item_name,
+                        'Item Key': item_key,
+                        'Item Status': item_status
+                    })
+        
+        return pd.DataFrame(data)
     
-    # Disconnect from Zabbix API
-    zapi.user.logout()
-    
-    return df
+    except ZabbixAPIException as e:
+        logger.error(f"Zabbix API Error: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        raise
+    finally:
+        try:
+            if 'zapi' in locals():
+                zapi.user.logout()
+                logger.info("Disconnected from Zabbix API")
+        except Exception as e:
+            logger.error(f"Error during logout: {str(e)}")
 
 def export_to_excel(dataframe):
-    # Generate filename with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"zabbix_system_run_items_{timestamp}.xlsx"
-    
-    # Export to Excel
-    dataframe.to_excel(filename, index=False, engine='openpyxl')
-    print(f"Data exported to {filename}")
+    """Export DataFrame to Excel with timestamp"""
+    try:
+        if dataframe.empty:
+            logger.warning("No data to export")
+            return
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"zabbix_system_run_items_{timestamp}.xlsx"
+        
+        # Configure Excel writer
+        writer = pd.ExcelWriter(filename, engine='openpyxl')
+        dataframe.to_excel(writer, index=False)
+        
+        # Auto-adjust column widths
+        worksheet = writer.sheets['Sheet1']
+        for column in worksheet.columns:
+            max_length = 0
+            column = [cell for cell in column]
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = (max_length + 2)
+            worksheet.column_dimensions[column[0].column_letter].width = adjusted_width
+        
+        writer.close()
+        logger.info(f"Successfully exported data to {filename}")
+    except Exception as e:
+        logger.error(f"Excel export failed: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     try:
-        # Get data from Zabbix
+        logger.info("Starting Zabbix data extraction...")
+        start_time = time.time()
+        
         zabbix_data = get_zabbix_data()
         
         if not zabbix_data.empty:
-            # Export to Excel
+            logger.info(f"Retrieved {len(zabbix_data)} records")
             export_to_excel(zabbix_data)
         else:
-            print("No items found starting with 'system.run'")
+            logger.warning("No items found starting with 'system.run'")
+        
+        elapsed_time = time.time() - start_time
+        logger.info(f"Process completed in {elapsed_time:.2f} seconds")
     except Exception as e:
-        print(f"An error occurred: {str(e)}")
+        logger.error(f"Script failed: {str(e)}")
