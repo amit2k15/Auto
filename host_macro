@@ -1,0 +1,79 @@
+from pyzabbix import ZabbixAPI
+from openpyxl import Workbook
+import getpass
+
+# Zabbix API credentials
+zabbix_url = input("Enter Zabbix server URL (e.g., http://zabbix.example.com): ")
+zabbix_user = input("Enter Zabbix username: ")
+zabbix_password = getpass.getpass("Enter Zabbix password: ")
+
+# Connect to Zabbix API
+print("Connecting to Zabbix API...")
+zapi = ZabbixAPI(zabbix_url)
+zapi.login(zabbix_user, zabbix_password)
+print("Connected to Zabbix API Version %s" % zapi.api_version())
+
+# Get all hosts that have DB.ODBC items
+print("Fetching DB.ODBC items...")
+items = zapi.item.get(
+    output=['hostid', 'name', 'key_'],
+    search={'key_': 'db.odbc'},
+    searchWildcardsEnabled=True,
+    selectHosts=['host']
+)
+
+# Get all host macros
+print("Fetching host macros...")
+hosts_with_macros = zapi.host.get(
+    output=['hostid'],
+    selectMacros=['macro', 'value'],
+    hostids=[item['hostid'] for item in items]
+)
+
+# Create a dictionary of hostid to macros
+host_macros = {}
+for host in hosts_with_macros:
+    host_macros = {}
+    for macro in host['macros']:
+        host_macros[macro['macro']] = macro['value']
+    host_macros[host['hostid']] = host_macros
+
+# Prepare data for Excel
+excel_data = []
+for item in items:
+    host_id = item['hostid']
+    host_name = item['hosts'][0]['host'] if item['hosts'] else 'Unknown'
+    item_key = item['key_']
+    
+    # Get macros for this host
+    macros = host_macros.get(host_id, {})
+    
+    for macro_name, macro_value in macros.items():
+        excel_data.append({
+            'Host Name': host_name,
+            'Macro Name': macro_name,
+            'Macro Value': macro_value,
+            'DB.ODBC Item Key': item_key
+        })
+
+# Create Excel workbook
+print("Creating Excel file...")
+wb = Workbook()
+ws = wb.active
+ws.title = "DB.ODBC Items with Macros"
+
+# Write headers
+headers = ['Host Name', 'Macro Name', 'Macro Value', 'DB.ODBC Item Key']
+ws.append(headers)
+
+# Write data
+for row in excel_data:
+    ws.append([row['Host Name'], row['Macro Name'], row['Macro Value'], row['DB.ODBC Item Key']])
+
+# Save the workbook
+output_filename = 'zabbix_db_odbc_items_with_macros.xlsx'
+wb.save(output_filename)
+print(f"Data exported to {output_filename}")
+
+# Logout from Zabbix API
+zapi.user.logout()
