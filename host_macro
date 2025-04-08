@@ -1,66 +1,35 @@
 from pyzabbix import ZabbixAPI
-from openpyxl import Workbook
-import getpass
+import openpyxl
 
-# Zabbix API credentials
-zabbix_url = input("Enter Zabbix URL (e.g., http://zabbix.example.com/api_jsonrpc.php): ")
-zabbix_user = input("Enter Zabbix username: ")
-zabbix_password = getpass.getpass("Enter Zabbix password: ")
+# Zabbix credentials
+ZABBIX_URL = 'https://your_zabbix_url'
+USERNAME = 'your_username'
+PASSWORD = 'your_password'
 
 # Connect to Zabbix API
-try:
-    zapi = ZabbixAPI(zabbix_url)
-    zapi.login(zabbix_user, zabbix_password)
-    print("Connected to Zabbix API Version %s" % zapi.api_version())
-except Exception as e:
-    print("Error connecting to Zabbix API: %s" % e)
-    exit(1)
+zapi = ZabbixAPI(ZABBIX_URL)
+zapi.login(USERNAME, PASSWORD)
+print("Connected to Zabbix API")
 
-# Get all hosts with macros
-try:
-    # Get all hosts
-    hosts = zapi.host.get(
-        output=['hostid', 'host'],
-        selectMacros='extend'
+# Prepare Excel workbook
+workbook = openpyxl.Workbook()
+sheet = workbook.active
+sheet.title = 'Host Macros'
+sheet.append(['Host Name', 'Macro Name', 'Macro Value'])
+
+# Get all hosts
+hosts = zapi.host.get(output=['hostid', 'host'])
+
+# Loop through hosts to get macros
+for host in hosts:
+    macros = zapi.usermacro.get(
+        hostids=host['hostid'],
+        output=['macro', 'value']
     )
-    
-    # Prepare data for Excel
-    data = []
-    for host in hosts:
-        host_name = host['host']
-        if 'macros' in host and host['macros']:
-            for macro in host['macros']:
-                data.append({
-                    'Host Name': host_name,
-                    'Macro Name': macro['macro'],
-                    'Macro Value': macro['value']
-                })
-        else:
-            data.append({
-                'Host Name': host_name,
-                'Macro Name': 'No macros',
-                'Macro Value': ''
-            })
-    
-    # Create Excel workbook
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Zabbix Host Macros"
-    
-    # Write headers
-    headers = ['Host Name', 'Macro Name', 'Macro Value']
-    ws.append(headers)
-    
-    # Write data
-    for row in data:
-        ws.append([row['Host Name'], row['Macro Name'], row['Macro Value']])
-    
-    # Save the workbook
-    output_file = 'zabbix_host_macros.xlsx'
-    wb.save(output_file)
-    print(f"Data exported successfully to {output_file}")
-    
-except Exception as e:
-    print("Error retrieving data: %s" % e)
-finally:
-    zapi.logout()
+    for macro in macros:
+        sheet.append([host['host'], macro['macro'], macro['value']])
+
+# Save Excel file
+excel_file = 'zabbix_host_macros.xlsx'
+workbook.save(excel_file)
+print(f"Data saved to {excel_file}")
