@@ -1,46 +1,47 @@
 from pyzabbix import ZabbixAPI
 import openpyxl
 
-# Zabbix connection
-ZABBIX_URL = "http://your-zabbix-url/zabbix"
+# Zabbix credentials and server URL
+ZABBIX_SERVER = "http://your-zabbix-url/zabbix"
 ZABBIX_USER = "your-username"
 ZABBIX_PASSWORD = "your-password"
 
 # Connect to Zabbix API
-zapi = ZabbixAPI(ZABBIX_URL)
+zapi = ZabbixAPI(ZABBIX_SERVER)
 zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
 
-# Create Excel workbook
+# Create an Excel workbook
 wb = openpyxl.Workbook()
 ws = wb.active
-ws.title = "system.run items"
-ws.append(["Host Name", "Host Group", "Host Status", "Item Name", "Item Key", "Item Status"])
+ws.title = "system.run Items"
+
+# Add headers
+ws.append(["Hostname", "Host Status", "Item Name", "Item Key", "Item Status"])
 
 # Get all hosts
-hosts = zapi.host.get(output=["hostid", "host", "status"],
-                      selectGroups=["name"])
+hosts = zapi.host.get(output=["hostid", "host", "status"])
 
 for host in hosts:
     host_id = host['hostid']
     host_name = host['host']
-    host_status = "Enabled" if host['status'] == "0" else "Disabled"
-    group_names = ", ".join([group['name'] for group in host['groups']])
+    host_status = "Enabled" if host['status'] == '0' else "Disabled"
 
-    # Get items where key_ starts with 'system.run'
-    items = zapi.item.get(hostids=host_id,
-                          search={"key_": "system.run"},
-                          output=["name", "key_", "status"],
-                          searchWildcardsEnabled=True)
+    # Get items with key starting with 'system.run'
+    items = zapi.item.get(
+        hostids=host_id,
+        search={"key_": "system.run"},
+        searchWildcardsEnabled=True,
+        output=["name", "key_", "status"]
+    )
 
     for item in items:
-        item_name = item['name']
-        item_key = item['key_']
-        item_status = "Enabled" if item['status'] == "0" else "Disabled"
+        item_name = item["name"]
+        item_key = item["key_"]
+        item_status = "Enabled" if item["status"] == '0' else "Disabled"
 
-        ws.append([host_name, group_names, host_status, item_name, item_key, item_status])
+        ws.append([host_name, host_status, item_name, item_key, item_status])
 
 # Save Excel file
 excel_file = "zabbix_system_run_items.xlsx"
 wb.save(excel_file)
-
 print(f"Data exported to {excel_file}")
