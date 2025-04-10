@@ -1,0 +1,70 @@
+import pandas as pd
+from pyzabbix import ZabbixAPI
+
+# Zabbix API credentials
+ZABBIX_SERVER = 'https://your-zabbix-server.com/api_jsonrpc.php'
+ZABBIX_USER = 'your_username'
+ZABBIX_PASSWORD = 'your_password'
+
+# Connect to Zabbix API
+zapi = ZabbixAPI(ZABBIX_SERVER)
+zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
+
+# Get all host groups starting with 'owca'
+hostgroups = zapi.hostgroup.get(
+    output=['groupid', 'name'],
+    search={'name': 'owca'},
+    startSearch=True
+)
+
+# Get proxy IDs to exclude (a, b, and c proxies)
+exclude_proxies = zapi.proxy.get(
+    output=['proxyid', 'host'],
+    filter={'host': ['a', 'b', 'c']}
+)
+exclude_proxy_ids = [p['proxyid'] for p in exclude_proxies]
+
+# Get hosts that are in the owca groups and not under excluded proxies
+hosts = zapi.host.get(
+    output=['hostid', 'host', 'name', 'status', 'description', 'proxy_hostid'],
+    groupids=[hg['groupid'] for hg in hostgroups],
+    selectInterfaces=['ip', 'dns', 'port', 'type'],
+    selectGroups=['groupid', 'name'],
+    selectParentTemplates=['templateid', 'name'],
+    selectTags=['tag', 'value'],
+    selectMacros=['macro', 'value'],
+    filter={'proxy_hostid': exclude_proxy_ids},
+    monitored_hosts=True
+)
+
+# Process host data for Excel
+host_data = []
+for host in hosts:
+    # Get first interface (usually the agent interface)
+    interface = host['interfaces'][0] if host['interfaces'] else {}
+    
+    host_data.append({
+        'Host ID': host['hostid'],
+        'Host Name': host['host'],
+        'Visible Name': host['name'],
+        'IP Address': interface.get('ip', ''),
+        'DNS Name': interface.get('dns', ''),
+        'Port': interface.get('port', ''),
+        'Status': 'Enabled' if host['status'] == '0' else 'Disabled',
+        'Description': host['description'],
+        'Proxy ID': host['proxy_hostid'],
+        'Host Groups': ', '.join([g['name'] for g in host['groups']]),
+        'Templates': ', '.join([t['name'] for t in host['parentTemplates']]),
+        'Tags': ', '.join([f"{t['tag']}:{t['value']}" for t in host['tags']]),
+        'Macros': ', '.join([f"{m['macro']}={m['value']}" for m in host['macros']])
+    })
+
+# Create DataFrame and export to Excel
+df = pd.DataFrame(host_data)
+output_file = 'owca_hosts_not_under_abc_proxies.xlsx'
+df.to_excel(output_file, index=False, sheet_name='Hosts')
+
+print(f"Data exported to {output_file}")
+
+# Logout from Zabbix API
+zapi.user.logout()
