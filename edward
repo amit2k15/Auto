@@ -1,0 +1,9 @@
+Hi Edward,
+
+As discussed earlier, we are currently monitoring OWCA servers in the ORx Zabbix instance. When we initiated this project, the OWCA team whitelisted the ORx Zabbix proxy IPs, enabling us to monitor the devices successfully.
+
+As part of our planned migration from ORx Zabbix to the Enterprise Zabbix platform, we will need to update the firewall policies on the OWCA side to include the new Enterprise Zabbix proxy details. We kindly request your assistance in enabling the same whitelisting policies for the new Enterprise proxy IPs as were previously in place for ORx Zabbix.
+
+Please let us know if you require any additional details or if there’s a process we need to follow to facilitate this update. We appreciate your support in ensuring a smooth transition.
+
+Looking forward to your confirmation.
