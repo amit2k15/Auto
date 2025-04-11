@@ -1,0 +1,147 @@
+import pandas as pd
+from pyzabbix import ZabbixAPI
+from datetime import datetime
+import getpass
+
+def get_zabbix_connection(zabbix_url, username, password):
+    """Establish connection to Zabbix API"""
+    zapi = ZabbixAPI(zabbix_url)
+    zapi.login(username, password)
+    return zapi
+
+def get_web_scenarios(zapi):
+    """Fetch all web scenarios with authentication details"""
+    scenarios = zapi.httptest.get(
+        output='extend',
+        selectSteps='extend',
+        selectHosts=['host'],
+        selectTags='extend'
+    )
+    return scenarios
+
+def process_scenario_data(scenarios):
+    """Process scenario data into a structured format"""
+    report_data = []
+    
+    for scenario in scenarios:
+        for host in scenario['hosts']:
+            for step in scenario['steps']:
+                auth_type = step.get('authentication', 'None')
+                if auth_type != '0':  # 0 means no authentication
+                    auth_type = {
+                        '1': 'Basic',
+                        '2': 'NTLM',
+                        '3': 'Kerberos'
+                    }.get(auth_type, auth_type)
+                    
+                    report_data.append({
+                        'Host': host['host'],
+                        'Scenario Name': scenario['name'],
+                        'Scenario ID': scenario['httptestid'],
+                        'Step Name': step['name'],
+                        'Step URL': step['url'],
+                        'Authentication Type': auth_type,
+                        'Username': step.get('http_user', ''),
+                        'Password': '*****' if step.get('http_password') else '',
+                        'Status': 'Enabled' if scenario['status'] == '0' else 'Disabled',
+                        'Tags': ', '.join([tag['tag'] + ':' + tag['value'] for tag in scenario.get('tags', [])])
+                    })
+    
+    return report_data
+
+def generate_excel_report(data, filename):
+    """Generate Excel report from the data"""
+    df = pd.DataFrame(data)
+    
+    # Reorder columns for better readability
+    columns = [
+        'Host', 'Scenario Name', 'Scenario ID', 'Step Name', 'Step URL',
+        'Authentication Type', 'Username', 'Password', 'Status', 'Tags'
+    ]
+    df = df[columns]
+    
+    # Write to Excel
+    writer = pd.ExcelWriter(filename, engine='xlsxwriter')
+    df.to_excel(writer, sheet_name='Authentication Report', index=False)
+    
+    # Formatting
+    workbook = writer.book
+    worksheet = writer.sheets['Authentication Report']
+    
+    # Set column widths
+    worksheet.set_column('A:A', 20)  # Host
+    worksheet.set_column('B:B', 30)  # Scenario Name
+    worksheet.set_column('C:C', 15)  # Scenario ID
+    worksheet.set_column('D:D', 25)  # Step Name
+    worksheet.set_column('E:E', 40)  # Step URL
+    worksheet.set_column('F:F', 20)  # Authentication Type
+    worksheet.set_column('G:G', 20)  # Username
+    worksheet.set_column('H:H', 15)  # Password
+    worksheet.set_column('I:I', 10)  # Status
+    worksheet.set_column('J:J', 30)  # Tags
+    
+    # Add a header format
+    header_format = workbook.add_format({
+        'bold': True,
+        'text_wrap': True,
+        'valign': 'top',
+        'fg_color': '#4472C4',
+        'font_color': 'white',
+        'border': 1
+    })
+    
+    # Write the column headers with the defined format
+    for col_num, value in enumerate(df.columns.values):
+        worksheet.write(0, col_num, value, header_format)
+    
+    # Auto-filter
+    worksheet.autofilter(0, 0, 0, len(df.columns) - 1)
+    
+    # Freeze the first row
+    worksheet.freeze_panes(1, 0)
+    
+    writer.close()
+
+def main():
+    # Configuration
+    zabbix_url = input("Enter Zabbix server URL (e.g., https://zabbix.example.com/api_jsonrpc.php): ")
+    username = input("Enter Zabbix username: ")
+    password = getpass.getpass("Enter Zabbix password: ")
+    
+    # Generate output filename with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = f"zabbix_web_scenario_auth_report_{timestamp}.xlsx"
+    
+    try:
+        # Connect to Zabbix
+        print("Connecting to Zabbix API...")
+        zapi = get_zabbix_connection(zabbix_url, username, password)
+        
+        # Get web scenarios
+        print("Fetching web scenarios...")
+        scenarios = get_web_scenarios(zapi)
+        
+        # Process data
+        print("Processing data...")
+        report_data = process_scenario_data(scenarios)
+        
+        if not report_data:
+            print("No web scenarios with authentication found.")
+            return
+        
+        # Generate report
+        print(f"Generating report: {output_file}")
+        generate_excel_report(report_data, output_file)
+        
+        print(f"Report successfully generated: {output_file}")
+    
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+    
+    finally:
+        # Logout
+        if 'zapi' in locals():
+            zapi.user.logout()
+
+if __name__ == "__main__":
+    main()
