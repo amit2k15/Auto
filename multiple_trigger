@@ -1,47 +1,45 @@
 from pyzabbix import ZabbixAPI
-import pandas as pd
+from collections import defaultdict
+import openpyxl
 
-# Zabbix server credentials
-ZABBIX_URL = "https://your-zabbix-server-url/zabbix"
-USERNAME = "your-username"
-PASSWORD = "your-password"
+# Zabbix credentials
+ZABBIX_URL = 'https://your-zabbix-url.com/zabbix'
+ZABBIX_USER = 'your-username'
+ZABBIX_PASS = 'your-password'
 
 # Connect to Zabbix
 zapi = ZabbixAPI(ZABBIX_URL)
-zapi.login(USERNAME, PASSWORD)
+zapi.login(ZABBIX_USER, ZABBIX_PASS)
 
-# Step 1: Fetch all triggers with host info
+# Dictionary to hold triggers mapped to hosts
+trigger_host_map = defaultdict(list)
+
+# Get all triggers with associated hosts
 triggers = zapi.trigger.get(
     output=["triggerid", "description"],
-    expandDescription=True,
-    selectHosts=["hostid", "host"],
-    skipDependent=1,
-    only_true=0,
-    filter={"value": 0},  # Only normal triggers (not in problem state)
+    selectHosts=["host"],
+    filter={"value": 0},  # only problem triggers if you want; remove this line to get all
+    expandDescription=True
 )
 
-# Step 2: Group by trigger description
-trigger_map = {}
+# Group triggers by description
 for trig in triggers:
     desc = trig['description']
-    hosts = [h['host'] for h in trig.get('hosts', [])]
+    hosts = [host['host'] for host in trig['hosts']]
+    trigger_host_map[desc].extend(hosts)
 
-    if desc not in trigger_map:
-        trigger_map[desc] = set()
+# Filter triggers that are configured on more than one host
+common_triggers = {k: v for k, v in trigger_host_map.items() if len(set(v)) > 1}
 
-    trigger_map[desc].update(hosts)
+# Write to Excel
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.title = "Common Triggers"
+ws.append(["Trigger Name", "Hostnames"])
 
-# Step 3: Filter triggers shared by multiple hosts
-shared_triggers = {k: v for k, v in trigger_map.items() if len(v) > 1}
+for trigger_name, hosts in common_triggers.items():
+    ws.append([trigger_name, ', '.join(sorted(set(hosts)))])
 
-# Step 4: Flatten results for Excel
-data = []
-for trigger_name, hostnames in shared_triggers.items():
-    for host in hostnames:
-        data.append({"Host Name": host, "Trigger Name": trigger_name})
-
-# Step 5: Export to Excel
-df = pd.DataFrame(data)
-df.to_excel("shared_triggers.xlsx", index=False)
-
-print("Excel file 'shared_triggers.xlsx' has been created.")
+output_file = "common_triggers.xlsx"
+wb.save(output_file)
+print(f"Saved to {output_file}")
