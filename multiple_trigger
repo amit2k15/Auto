@@ -1,0 +1,47 @@
+from pyzabbix import ZabbixAPI
+import pandas as pd
+
+# Zabbix server credentials
+ZABBIX_URL = "https://your-zabbix-server-url/zabbix"
+USERNAME = "your-username"
+PASSWORD = "your-password"
+
+# Connect to Zabbix
+zapi = ZabbixAPI(ZABBIX_URL)
+zapi.login(USERNAME, PASSWORD)
+
+# Step 1: Fetch all triggers with host info
+triggers = zapi.trigger.get(
+    output=["triggerid", "description"],
+    expandDescription=True,
+    selectHosts=["hostid", "host"],
+    skipDependent=1,
+    only_true=0,
+    filter={"value": 0},  # Only normal triggers (not in problem state)
+)
+
+# Step 2: Group by trigger description
+trigger_map = {}
+for trig in triggers:
+    desc = trig['description']
+    hosts = [h['host'] for h in trig.get('hosts', [])]
+
+    if desc not in trigger_map:
+        trigger_map[desc] = set()
+
+    trigger_map[desc].update(hosts)
+
+# Step 3: Filter triggers shared by multiple hosts
+shared_triggers = {k: v for k, v in trigger_map.items() if len(v) > 1}
+
+# Step 4: Flatten results for Excel
+data = []
+for trigger_name, hostnames in shared_triggers.items():
+    for host in hostnames:
+        data.append({"Host Name": host, "Trigger Name": trigger_name})
+
+# Step 5: Export to Excel
+df = pd.DataFrame(data)
+df.to_excel("shared_triggers.xlsx", index=False)
+
+print("Excel file 'shared_triggers.xlsx' has been created.")
