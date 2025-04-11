@@ -1,45 +1,89 @@
 from pyzabbix import ZabbixAPI
-from collections import defaultdict
-import openpyxl
+from openpyxl import Workbook
+from openpyxl.styles import Font
+import getpass
 
-# Zabbix credentials
-ZABBIX_URL = 'https://your-zabbix-url.com/zabbix'
-ZABBIX_USER = 'your-username'
-ZABBIX_PASS = 'your-password'
+# Zabbix API credentials
+zabbix_url = input("Enter Zabbix server URL (e.g., http://zabbix.example.com): ")
+zabbix_user = input("Enter Zabbix username: ")
+zabbix_password = getpass.getpass("Enter Zabbix password: ")
 
-# Connect to Zabbix
-zapi = ZabbixAPI(ZABBIX_URL)
-zapi.login(ZABBIX_USER, ZABBIX_PASS)
+# Connect to Zabbix API
+print("Connecting to Zabbix API...")
+zapi = ZabbixAPI(zabbix_url)
+zapi.login(zabbix_user, zabbix_password)
+print("Connected to Zabbix API Version:", zapi.api_version())
 
-# Dictionary to hold triggers mapped to hosts
-trigger_host_map = defaultdict(list)
-
-# Get all triggers with associated hosts
+# Get all triggers that are enabled and have multiple hosts
+print("Fetching triggers with multiple hosts...")
 triggers = zapi.trigger.get(
-    output=["triggerid", "description"],
-    selectHosts=["host"],
-    filter={"value": 0},  # only problem triggers if you want; remove this line to get all
-    expandDescription=True
+    output=['triggerid', 'description', 'priority', 'lastchange'],
+    selectHosts=['hostid', 'name'],
+    selectGroups=['groupid', 'name'],
+    filter={'status': '0'},  # only enabled triggers
+    expandDescription=True,
+    sortfield='description',
+    sortorder='ASC'
 )
 
-# Group triggers by description
-for trig in triggers:
-    desc = trig['description']
-    hosts = [host['host'] for host in trig['hosts']]
-    trigger_host_map[desc].extend(hosts)
+# Filter triggers that are assigned to more than one host
+multi_host_triggers = [t for t in triggers if len(t['hosts']) > 1]
 
-# Filter triggers that are configured on more than one host
-common_triggers = {k: v for k, v in trigger_host_map.items() if len(set(v)) > 1}
+# Create a dictionary to organize data
+trigger_data = {}
+for trigger in multi_host_triggers:
+    trigger_name = trigger['description']
+    if trigger_name not in trigger_data:
+        trigger_data[trigger_name] = {
+            'trigger_id': trigger['triggerid'],
+            'priority': trigger['priority'],
+            'hosts': []
+        }
+    
+    for host in trigger['hosts']:
+        trigger_data[trigger_name]['hosts'].append(host['name'])
 
-# Write to Excel
-wb = openpyxl.Workbook()
+# Create Excel workbook
+wb = Workbook()
 ws = wb.active
-ws.title = "Common Triggers"
-ws.append(["Trigger Name", "Hostnames"])
+ws.title = "Triggers with Multiple Hosts"
 
-for trigger_name, hosts in common_triggers.items():
-    ws.append([trigger_name, ', '.join(sorted(set(hosts)))])
+# Write headers
+headers = ['Trigger Name', 'Trigger ID', 'Priority', 'Host Count', 'Host Names']
+ws.append(headers)
 
-output_file = "common_triggers.xlsx"
+# Make headers bold
+for cell in ws[1]:
+    cell.font = Font(bold=True)
+
+# Write data
+for trigger_name, data in trigger_data.items():
+    host_names = ", ".join(data['hosts'])
+    ws.append([
+        trigger_name,
+        data['trigger_id'],
+        data['priority'],
+        len(data['hosts']),
+        host_names
+    ])
+
+# Auto-adjust column widths
+for column in ws.columns:
+    max_length = 0
+    column_letter = column[0].column_letter
+    for cell in column:
+        try:
+            if len(str(cell.value)) > max_length:
+                max_length = len(str(cell.value))
+        except:
+            pass
+    adjusted_width = (max_length + 2) * 1.2
+    ws.column_dimensions[column_letter].width = adjusted_width
+
+# Save the Excel file
+output_file = "zabbix_triggers_with_multiple_hosts.xlsx"
 wb.save(output_file)
-print(f"Saved to {output_file}")
+print(f"Data saved to {output_file}")
+
+# Logout from Zabbix API
+zapi.user.logout()
