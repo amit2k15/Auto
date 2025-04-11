@@ -28,16 +28,24 @@ ws.append(["Host", "Macro Name", "Macro Value"])
 
 # Fetch macros for each host
 for host_id in host_ids:
-    host = zapi.host.get(hostids=host_id, output=["host"])[0]
+    # Get host name
+    host_info = zapi.host.get(hostids=host_id, output=["host"])
+    if not host_info:
+        continue  # Skip if host not found
+
+    host_name = host_info[0]['host']
+
+    # Get user macros for the host
     macros = zapi.usermacro.get(hostids=host_id, output=["macro", "value"])
 
     if macros:
         for macro in macros:
-            ws.append([host['host'], macro['macro'], macro['value']])
+            macro_name = macro.get('macro', 'N/A')
+            macro_value = macro.get('value', '**** SECURE OR UNAVAILABLE ****')
+            ws.append([host_name, macro_name, macro_value])
     else:
-        ws.append([host['host'], "N/A", "N/A"])
+        ws.append([host_name, "N/A", "N/A"])
 
 # Save to Excel
 wb.save("odbc_hosts_macros_report.xlsx")
-
 print("Report generated: odbc_hosts_macros_report.xlsx")
