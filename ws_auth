@@ -1,0 +1,149 @@
+import sys
+from pyzabbix import ZabbixAPI
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment
+from datetime import datetime
+
+def get_zabbix_connection(zabbix_url, zabbix_user, zabbix_password):
+    """Establish connection to Zabbix API"""
+    try:
+        zapi = ZabbixAPI(zabbix_url)
+        zapi.login(zabbix_user, zabbix_password)
+        print(f"Connected to Zabbix API Version {zapi.api_version()}")
+        return zapi
+    except Exception as e:
+        print(f"Error connecting to Zabbix API: {str(e)}")
+        sys.exit(1)
+
+def get_web_scenarios(zapi):
+    """Retrieve all web scenarios with authentication details"""
+    try:
+        # Get all web scenarios with httptests.get
+        scenarios = zapi.httptest.get(
+            output='extend',
+            selectHosts=['host'],
+            selectSteps='extend',
+            selectTags='extend',
+            selectHttpAuth='extend'
+        )
+        return scenarios
+    except Exception as e:
+        print(f"Error fetching web scenarios: {str(e)}")
+        return []
+
+def generate_excel_report(scenarios, filename):
+    """Generate Excel report with web scenario authentication details"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Web Scenario Auth Details"
+    
+    # Header row
+    headers = [
+        "Host", "Scenario Name", "Scenario ID", "Enabled", 
+        "Authentication Type", "Username", "Password",
+        "URL", "Status Codes", "Required String", 
+        "Tags", "Last Check", "Next Check"
+    ]
+    
+    ws.append(headers)
+    
+    # Format header row
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal='center')
+    
+    # Add data rows
+    for scenario in scenarios:
+        host_name = scenario['hosts'][0]['host'] if scenario['hosts'] else 'N/A'
+        
+        # Get authentication details
+        auth_type = scenario.get('httpauthtype', '0')
+        auth_map = {
+            '0': 'None',
+            '1': 'Basic',
+            '2': 'NTLM',
+            '3': 'Kerberos'
+        }
+        auth_type_str = auth_map.get(auth_type, 'Unknown')
+        
+        username = scenario.get('http_user', '')
+        password = scenario.get('http_password', '')  # Note: Password will be in plain text
+        
+        # Process steps
+        steps = scenario.get('steps', [])
+        step_urls = []
+        status_codes = []
+        required_strings = []
+        
+        for step in steps:
+            step_urls.append(step.get('url', ''))
+            status_codes.append(step.get('status_codes', ''))
+            required_strings.append(step.get('required', ''))
+        
+        # Process tags
+        tags = scenario.get('tags', [])
+        tag_string = "; ".join([f"{tag['tag']}:{tag.get('value', '')}" for tag in tags])
+        
+        # Add row to worksheet
+        ws.append([
+            host_name,
+            scenario['name'],
+            scenario['httptestid'],
+            'Yes' if scenario['status'] == '0' else 'No',
+            auth_type_str,
+            username,
+            password,
+            "\n".join(step_urls),
+            "\n".join(status_codes),
+            "\n".join(required_strings),
+            tag_string,
+            datetime.fromtimestamp(int(scenario['lastcheck'])).strftime('%Y-%m-%d %H:%M:%S'),
+            datetime.fromtimestamp(int(scenario['nextcheck'])).strftime('%Y-%m-%d %H:%M:%S')
+        ])
+    
+    # Auto-adjust column widths
+    for column in ws.columns:
+        max_length = 0
+        column_letter = column[0].column_letter
+        for cell in column:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = (max_length + 2)
+        ws.column_dimensions[column_letter].width = adjusted_width
+    
+    # Save the workbook
+    wb.save(filename)
+    print(f"Report generated successfully: {filename}")
+
+def main():
+    # Zabbix API credentials
+    ZABBIX_URL = 'http://your-zabbix-server/zabbix/api_jsonrpc.php'
+    ZABBIX_USER = 'your-username'
+    ZABBIX_PASSWORD = 'your-password'
+    
+    # Output filename
+    output_file = f"zabbix_web_scenario_auth_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    
+    # Connect to Zabbix API
+    zapi = get_zabbix_connection(ZABBIX_URL, ZABBIX_USER, ZABBIX_PASSWORD)
+    
+    # Get web scenarios
+    scenarios = get_web_scenarios(zapi)
+    
+    if not scenarios:
+        print("No web scenarios found or error occurred while fetching data.")
+        sys.exit(1)
+    
+    print(f"Found {len(scenarios)} web scenarios. Generating report...")
+    
+    # Generate Excel report
+    generate_excel_report(scenarios, output_file)
+    
+    # Logout from Zabbix API
+    zapi.user.logout()
+
+if __name__ == "__main__":
+    main()
