@@ -1,0 +1,43 @@
+from pyzabbix import ZabbixAPI
+import openpyxl
+
+# Zabbix server details
+ZABBIX_SERVER = 'https://your-zabbix-server-url'
+USERNAME = 'your-username'
+PASSWORD = 'your-password'
+
+# Connect to Zabbix API
+zapi = ZabbixAPI(ZABBIX_SERVER)
+zapi.login(USERNAME, PASSWORD)
+
+# Get all items with key starting with 'db.odbc'
+items = zapi.item.get(
+    search={"key_": "db.odbc"},
+    output=["hostid", "itemid", "key_"],
+    selectHosts=["hostid", "host"]
+)
+
+# Extract unique host IDs
+host_ids = list(set(item['hostid'] for item in items))
+
+# Prepare workbook
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.title = "ODBC Host Macros"
+ws.append(["Host", "Macro Name", "Macro Value"])
+
+# Fetch macros for each host
+for host_id in host_ids:
+    host = zapi.host.get(hostids=host_id, output=["host"])[0]
+    macros = zapi.usermacro.get(hostids=host_id, output=["macro", "value"])
+
+    if macros:
+        for macro in macros:
+            ws.append([host['host'], macro['macro'], macro['value']])
+    else:
+        ws.append([host['host'], "N/A", "N/A"])
+
+# Save to Excel
+wb.save("odbc_hosts_macros_report.xlsx")
+
+print("Report generated: odbc_hosts_macros_report.xlsx")
