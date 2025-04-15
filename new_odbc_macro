@@ -1,0 +1,64 @@
+from pyzabbix import ZabbixAPI
+import openpyxl
+
+# Zabbix server details
+ZABBIX_SERVER = 'https://your-zabbix-server-url'
+USERNAME = 'your-username'
+PASSWORD = 'your-password'
+
+# Connect to Zabbix API
+zapi = ZabbixAPI(ZABBIX_SERVER)
+zapi.login(USERNAME, PASSWORD)
+
+# Get all items with key starting with 'db.odbc'
+items = zapi.item.get(
+    search={"key_": "db.odbc"},
+    output=["hostid", "itemid", "key_"],
+    selectHosts=["hostid", "host"]
+)
+
+# Extract unique host IDs
+host_ids = list(set(item['hostid'] for item in items))
+
+# Prepare workbook
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.title = "ODBC Host Macros"
+ws.append(["Host", "Host Status", "Proxy Name", "Macro Name", "Macro Value"])
+
+# Fetch macros for each host
+for host_id in host_ids:
+    # Get host details including proxy and status
+    host_info = zapi.host.get(
+        hostids=host_id,
+        output=["host", "status", "proxy_hostid"]
+    )
+    if not host_info:
+        continue  # Skip if host not found
+
+    host_data = host_info[0]
+    host_name = host_data['host']
+    host_status = "Enabled" if host_data.get("status") == "0" else "Disabled"
+
+    # Get proxy name if assigned
+    proxy_id = host_data.get("proxy_hostid")
+    if proxy_id:
+        proxy_info = zapi.proxy.get(proxyids=proxy_id, output=["host"])
+        proxy_name = proxy_info[0]['host'] if proxy_info else "Unknown"
+    else:
+        proxy_name = "No Proxy"
+
+    # Get user macros for the host
+    macros = zapi.usermacro.get(hostids=host_id, output=["macro", "value"])
+
+    if macros:
+        for macro in macros:
+            macro_name = macro.get('macro', 'N/A')
+            macro_value = macro.get('value', '**** SECURE OR UNAVAILABLE ****')
+            ws.append([host_name, host_status, proxy_name, macro_name, macro_value])
+    else:
+        ws.append([host_name, host_status, proxy_name, "N/A", "N/A"])
+
+# Save to Excel
+wb.save("odbc_hosts_macros_report.xlsx")
+print("Report generated: odbc_hosts_macros_report.xlsx")
