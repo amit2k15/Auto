@@ -1,0 +1,66 @@
+from pyzabbix import ZabbixAPI
+import openpyxl
+
+# Zabbix server details
+ZABBIX_SERVER = 'https://your-zabbix-server-url'
+USERNAME = 'your-username'
+PASSWORD = 'your-password'
+
+# Connect to Zabbix API
+zapi = ZabbixAPI(ZABBIX_SERVER)
+zapi.login(USERNAME, PASSWORD)
+
+# Get all items with key starting with 'db.odbc'
+items = zapi.item.get(
+    search={"key_": "db.odbc"},
+    output=["hostid", "itemid", "key_"],
+    selectHosts=["hostid", "host", "status", "proxy_hostid"]
+)
+
+# Prepare workbook
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.title = "ODBC Host Details"
+ws.append(["Host", "Host Status", "Proxy Name", "SQL Query", "Macro Names", "Macro Values"])
+
+# Create a cache for proxy lookup
+proxy_cache = {}
+
+for item in items:
+    host_id = item['hostid']
+    host_info = item['hosts'][0]
+    host_name = host_info.get('host', 'N/A')
+    host_status = 'Enabled' if host_info.get('status', '1') == '0' else 'Disabled'
+    proxy_id = host_info.get('proxy_hostid')
+
+    # Get proxy name (cache for performance)
+    if proxy_id:
+        if proxy_id in proxy_cache:
+            proxy_name = proxy_cache[proxy_id]
+        else:
+            proxy = zapi.proxy.get(proxyids=proxy_id, output=["host"])
+            proxy_name = proxy[0]['host'] if proxy else "Unknown Proxy"
+            proxy_cache[proxy_id] = proxy_name
+    else:
+        proxy_name = "No Proxy"
+
+    sql_query = item.get('key_', 'N/A')
+
+    # Get macros
+    macros = zapi.usermacro.get(hostids=host_id, output=["macro", "value"])
+    macro_names = []
+    macro_values = []
+
+    for macro in macros:
+        macro_names.append(macro.get('macro', 'N/A'))
+        macro_values.append(macro.get('value', '**** SECURE OR UNAVAILABLE ****'))
+
+    macro_name_str = ", ".join(macro_names) if macro_names else "N/A"
+    macro_value_str = ", ".join(macro_values) if macro_values else "N/A"
+
+    # Append all data in a single row
+    ws.append([host_name, host_status, proxy_name, sql_query, macro_name_str, macro_value_str])
+
+# Save to Excel
+wb.save("odbc_hosts_macros_report.xlsx")
+print("Report generated: odbc_hosts_macros_report.xlsx")
