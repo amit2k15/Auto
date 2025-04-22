@@ -1,0 +1,44 @@
+from pyzabbix import ZabbixAPI
+import pandas as pd
+
+# Zabbix server details
+ZABBIX_URL = 'https://your-zabbix-server-url/zabbix'
+ZABBIX_USER = 'your_username'
+ZABBIX_PASSWORD = 'your_password'
+
+# Input and output Excel files
+INPUT_EXCEL = 'hosts_to_remove.xlsx'
+OUTPUT_EXCEL = 'hosts_removal_result.xlsx'
+
+# Connect to Zabbix API
+zapi = ZabbixAPI(ZABBIX_URL)
+zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
+
+# Read the hostnames from Excel
+df_input = pd.read_excel(INPUT_EXCEL, sheet_name='Sheet1', usecols=[0])
+df_input.columns = ['HostName']
+
+# Prepare result list
+results = []
+
+for hostname in df_input['HostName']:
+    try:
+        # Get host ID
+        host = zapi.host.get(filter={"host": hostname})
+        if not host:
+            results.append({"HostName": hostname, "Result": "Host not found"})
+            continue
+
+        host_id = host[0]['hostid']
+
+        # Delete the host
+        zapi.host.delete(host_id)
+        results.append({"HostName": hostname, "Result": "Deleted successfully"})
+    except Exception as e:
+        results.append({"HostName": hostname, "Result": f"Error: {str(e)}"})
+
+# Save the results to a new Excel file
+df_result = pd.DataFrame(results)
+df_result.to_excel(OUTPUT_EXCEL, index=False)
+
+print("Host removal process completed. Results saved to:", OUTPUT_EXCEL)
