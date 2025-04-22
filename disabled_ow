@@ -1,0 +1,46 @@
+from pyzabbix import ZabbixAPI
+import openpyxl
+
+# Zabbix connection details
+ZABBIX_URL = "https://your_zabbix_url/zabbix"
+ZABBIX_USER = "your_username"
+ZABBIX_PASSWORD = "your_password"
+
+# Connect to Zabbix API
+zapi = ZabbixAPI(ZABBIX_URL)
+zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
+
+# Get host groups starting with "owca" or "OWCA"
+host_groups = zapi.hostgroup.get(output=["groupid", "name"])
+filtered_groups = [group for group in host_groups if group["name"].lower().startswith("owca")]
+group_ids = [group["groupid"] for group in filtered_groups]
+
+# Get disabled hosts in the filtered groups
+disabled_hosts = zapi.host.get(
+    groupids=group_ids,
+    output=["hostid", "host", "status"],
+    filter={"status": "1"}  # 1 = Disabled
+)
+
+# Create Excel workbook
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.title = "Disabled OWCA Hosts"
+
+# Header row
+ws.append(["Host Name", "Group Name(s)"])
+
+# Fetch and write each host's group name(s)
+for host in disabled_hosts:
+    host_groups = zapi.host.get(
+        hostids=host["hostid"],
+        selectGroups=["name"]
+    )[0]["groups"]
+
+    group_names = ", ".join(group["name"] for group in host_groups if group["name"].lower().startswith("owca"))
+    ws.append([host["host"], group_names])
+
+# Save Excel file
+output_filename = "disabled_owca_hosts.xlsx"
+wb.save(output_filename)
+print(f"Excel file '{output_filename}' has been created successfully.")
