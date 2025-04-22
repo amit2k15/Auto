@@ -1,0 +1,56 @@
+from pyzabbix import ZabbixAPI
+import pandas as pd
+
+# Zabbix credentials
+ZABBIX_URL = 'https://your-zabbix-url.com'
+ZABBIX_USER = 'your-username'
+ZABBIX_PASSWORD = 'your-password'
+
+# Connect to Zabbix
+zapi = ZabbixAPI(ZABBIX_URL)
+zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
+
+# Step 1: Get host groups with name starting with 'owca' (case-insensitive)
+host_groups = zapi.hostgroup.get(output=["groupid", "name"])
+owca_group_ids = [group['groupid'] for group in host_groups if group['name'].lower().startswith('owca')]
+
+# Step 2: Get hosts under those host groups
+hosts = zapi.host.get(
+    groupids=owca_group_ids,
+    output=["hostid", "host"]
+)
+
+result = []
+
+# Step 3: Loop through each host to get web scenarios and check for triggers
+for host in hosts:
+    webscenarios = zapi.httptest.get(
+        hostids=host['hostid'],
+        output=["httptestid", "name", "hostid", "status"]
+    )
+    
+    for scenario in webscenarios:
+        # Get step details to extract the URL
+        steps = zapi.httptestitem.get(httptestid=scenario['httptestid'], output=["url"])
+        url = steps[0]['url'] if steps else "N/A"
+
+        # Step 4: Check for triggers related to this webscenario
+        triggers = zapi.trigger.get(
+            hostids=host['hostid'],
+            search={"description": scenario['name']},
+            output="extend"
+        )
+
+        if not triggers:
+            result.append({
+                "Host Name": host['host'],
+                "Web Scenario Name": scenario['name'],
+                "URL": url,
+                "Scenario Status": "Enabled" if scenario['status'] == '0' else "Disabled"
+            })
+
+# Step 5: Save to Excel
+df = pd.DataFrame(result)
+df.to_excel("webscenarios_without_triggers.xlsx", index=False)
+
+print("Exported to webscenarios_without_triggers.xlsx")
