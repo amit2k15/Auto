@@ -1,0 +1,124 @@
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from pyzabbix import ZabbixAPI
+
+def get_zabbix_data(zabbix_url, zabbix_user, zabbix_password, hostgroups, item_key):
+    """
+    Fetch data from Zabbix API for specified hostgroups and item key
+    Returns a dictionary with hostgroup names as keys and their status as values
+    """
+    # Initialize Zabbix API connection
+    zapi = ZabbixAPI(zabbix_url)
+    zapi.login(zabbix_user, zabbix_password)
+    
+    hostgroup_status = {}
+    
+    for group_name in hostgroups:
+        # Get hostgroup ID
+        groups = zapi.hostgroup.get(filter={'name': group_name})
+        if not groups:
+            print(f"Hostgroup {group_name} not found")
+            continue
+            
+        group_id = groups[0]['groupid']
+        
+        # Get hosts in this hostgroup
+        hosts = zapi.host.get(groupids=group_id, output=['hostid', 'host'])
+        
+        if not hosts:
+            print(f"No hosts found in hostgroup {group_name}")
+            hostgroup_status[group_name] = "DOWN"
+            continue
+        
+        # Get the item value for each host
+        all_up = True
+        for host in hosts:
+            items = zapi.item.get(hostids=host['hostid'], 
+                                 search={'key_': item_key},
+                                 output=['lastvalue'])
+            
+            if not items:
+                print(f"Item {item_key} not found for host {host['host']}")
+                all_up = False
+                break
+                
+            last_value = items[0]['lastvalue']
+            if last_value != '1':
+                all_up = False
+                break
+        
+        hostgroup_status[group_name] = "UP" if all_up else "DOWN"
+    
+    zapi.user.logout()
+    return hostgroup_status
+
+def generate_email_body(hostgroup_status):
+    """
+    Generate the email body content based on hostgroup status
+    Returns the email body text and subject
+    """
+    email_body = "Hostgroup Status Report:\n\n"
+    
+    for group, status in hostgroup_status.items():
+        email_body += f"{group} {status}\n"
+    
+    # Determine email subject based on status
+    if all(status == "UP" for status in hostgroup_status.values()):
+        subject = "GREEN - All Hostgroups UP"
+    else:
+        subject = "RED - Some Hostgroups DOWN"
+    
+    return email_body, subject
+
+def send_email(sender_email, sender_password, recipient_emails, subject, body, smtp_server, smtp_port):
+    """
+    Send email with the status report to multiple recipients
+    """
+    # Create message container
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = ", ".join(recipient_emails)
+    msg['Subject'] = subject
+    
+    # Attach the body
+    msg.attach(MIMEText(body, 'plain'))
+    
+    try:
+        # Connect to SMTP server
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, recipient_emails, msg.as_string())
+        print("Email sent successfully!")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+
+def main():
+    # Zabbix API configuration
+    ZABBIX_URL = "http://your-zabbix-server/zabbix/api_jsonrpc.php"
+    ZABBIX_USER = "your_username"
+    ZABBIX_PASSWORD = "your_password"
+    
+    # Hostgroups and item to monitor
+    HOSTGROUPS = ['A', 'B', 'C', 'D', 'E']
+    ITEM_KEY = 'proc.num[Twincat]'
+    
+    # Email configuration
+    SENDER_EMAIL = "your_email@example.com"
+    SENDER_PASSWORD = "your_email_password"
+    RECIPIENT_EMAILS = ["recipient1@example.com", "recipient2@example.com"]
+    SMTP_SERVER = "smtp.example.com"
+    SMTP_PORT = 587  # Typically 587 for TLS
+    
+    # Get data from Zabbix
+    hostgroup_status = get_zabbix_data(ZABBIX_URL, ZABBIX_USER, ZABBIX_PASSWORD, HOSTGROUPS, ITEM_KEY)
+    
+    # Generate email content
+    email_body, email_subject = generate_email_body(hostgroup_status)
+    
+    # Send email
+    send_email(SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAILS, email_subject, email_body, SMTP_SERVER, SMTP_PORT)
+
+if __name__ == "__main__":
+    main()
