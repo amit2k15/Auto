@@ -103,8 +103,7 @@ email_subject = f"{status_keyword} - Morning Check Out: {datetime.now().strftime
 
 email_body += """
     </table>
-    <p>Thanks and Regards,<br>\nORx-Zabbix Team, \n\n*** This is an automatically generated email – please do not reply to it. If you have any queries regarding the report please email to orx_zabbix_support@ds.uhc.com ***</p>
-</body>
+    <p>Thanks and Regards,<br>\nORx-Zabbix Team, \n\n*** This is an automatically generated email – please do not reply to it. If you have any queries regarding the report please email to 
 </html>
 """
 
