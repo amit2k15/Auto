@@ -100,7 +100,7 @@ email_subject = f"RED - Morning Check Out: {datetime.now().strftime('%Y-%m-%d')}
 
 email_body += """
     </table>
-    <p>Thanks and Regards,<br>\nORx-Zabbix Team, \n\n*** This is an automatically generated email – please do not reply to it. If you have any queries regarding the report please email to orx_zabbix_support@ds.uhc.com ***</p>
+    <p>Thanks and Regards,<br>\nORx-Zabbix Team, \n\n*** This is an automatically generated email – please do not reply to it. If you have any queries regarding the report please email to  ***</p>
 </body>
 </html>
 """
