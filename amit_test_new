@@ -13,7 +13,7 @@ zabbix_password = ''
 zabbix = ZabbixAPI(zabbix_url)
 zabbix.login(zabbix_user, zabbix_password)
 
-# Define host groups and item name
+# Define host groups and item names
 host_groups = ['A', 'B']
 item_name = 'proc.num[TwinCATMessengerServer.exe]'
 
@@ -31,6 +31,15 @@ def get_service_status(host_id):
 def get_web_items(host_id):
     web_items = zabbix.item.get(hostids=host_id, webitems=True, output=['itemid', 'name', 'lastvalue'])
     return [{"name": item["name"], "lastvalue": item["lastvalue"]} for item in web_items if "response code" in item["name"].lower()]
+
+# Function to get QMSI service status (items with Application:service tag)
+def get_qmsi_status(host_id):
+    items = zabbix.item.get(
+        hostids=host_id,
+        tags=[{"tag": "Application", "value": "service"}],
+        output=['itemid', 'name', 'lastvalue']
+    )
+    return [{"name": item["name"], "lastvalue": item["lastvalue"]} for item in items]
 
 # Initialize overall status tracking
 overall_status_ok = True
@@ -97,13 +106,44 @@ for group in host_groups:
                 </tr>
         """
 
+# QMSI Services
+email_body += """
+    </table>
+    <h4>QMSI Services</h4>
+    <table border="1">
+        <tr>
+            <th>Application Name</th>
+            <th>Status</th>
+        </tr>
+"""
+# Check QMSI service status for each host in each host group
+for group in host_groups:
+    qmsi_status_list = []
+    hosts = zabbix.host.get(groupids=zabbix.hostgroup.get(filter={'name': group})[0]['groupid'])
+    for host in hosts:
+        qmsi_items = get_qmsi_status(host['hostid'])
+        qmsi_status_list.extend(qmsi_items)
+    # Assuming service is UP if lastvalue is "1" (similar to Twincat)
+    group_qmsi_status = all(status['lastvalue'] == "1" for status in qmsi_status_list)
+    if not group_qmsi_status:
+        overall_status_ok = False
+    overall_qmsi = "UP" if group_qmsi_status else "Down"
+    group_name = zabbix.hostgroup.get(filter={'name': group})[0]['name']
+    email_body += f"""
+                <tr>
+                    <td>{group_name}</td>
+                    <td>{overall_qmsi}</td>
+                </tr>
+        """
+
 # Determine email subject based on overall status
 status_keyword = "GREEN" if overall_status_ok else "RED"
 email_subject = f"{status_keyword} - Morning Check Out: {datetime.now().strftime('%Y-%m-%d')}"
 
 email_body += """
     </table>
-    <p>Thanks and Regards,<br>\nORx-Zabbix Team, \n\n*** This is an automatically generated email – please do not reply to it. If you have any queries regarding the report please email to 
+    <p>Thanks and Regards,<br>\nORx-Zabbix Team, \n\n*** This is an automatically generated email – please do not reply to it. If you have any queries regarding the report please email to orx_zabbix_support@ds.uhc.com ***</p>
+</body>
 </html>
 """
 
