@@ -15,7 +15,6 @@ zabbix.login(zabbix_user, zabbix_password)
 
 # Define host groups and item names
 host_groups = ['A', 'B']
-p2p_host_group = 'P2P'  # New host group for P2P
 item_name = 'proc.num[TwinCATMessengerServer.exe]'
 
 # Function to get service status for a host
@@ -51,14 +50,32 @@ def get_archiving_job_status(host_id):
     )
     return [{"name": item["name"], "lastvalue": item["lastvalue"]} for item in items]
 
-# New function to get Daemon status for P2P hosts
+# Function to get Daemon status for a host
 def get_daemon_status(host_id):
     items = zabbix.item.get(
         hostids=host_id,
         search={'name': 'Daemon'},
         output=['itemid', 'name', 'lastvalue']
     )
-    return [{"name": item["name"], "lastvalue": item["lastvalue"]} for item in items]
+    return [item["lastvalue"] for item in items if item["name"].startswith("Daemon")]
+
+# Function to get w3svc status for a host
+def get_w3svc_status(host_id):
+    items = zabbix.item.get(
+        hostids=host_id,
+        search={'name': 'w3svc'},
+        output=['itemid', 'name', 'lastvalue']
+    )
+    return [item["lastvalue"] for item in items if "w3svc" in item["name"]]
+
+# Function to get PTMS2 tagged services status
+def get_ptms2_tagged_status(host_id):
+    items = zabbix.item.get(
+        hostids=host_id,
+        tags=[{"tag": "Application", "value": "Services"}],
+        output=['itemid', 'name', 'lastvalue']
+    )
+    return [item["lastvalue"] for item in items]
 
 # Initialize overall status tracking
 overall_status_ok = True
@@ -185,7 +202,7 @@ for group in host_groups:
                 </tr>
         """
 
-# P2P Daemon Status (New Section)
+# P2P Daemon Status
 email_body += """
     </table>
     <h4>P2P Daemon Status</h4>
@@ -195,35 +212,140 @@ email_body += """
             <th>Status</th>
         </tr>
 """
-# Check Daemon status for each host in P2P host group
+# Check P2P Daemon status
+p2p_group = "P2P"
 daemon_status_list = []
-try:
-    p2p_group_id = zabbix.hostgroup.get(filter={'name': p2p_host_group})[0]['groupid']
-    hosts = zabbix.host.get(groupids=p2p_group_id)
+hosts = zabbix.host.get(groupids=zabbix.hostgroup.get(filter={'name': p2p_group})[0]['groupid'])
+for host in hosts:
+    daemon_status = get_daemon_status(host['hostid'])
+    daemon_status_list.extend(daemon_status)
+group_daemon_status = all(status == "1" for status in daemon_status_list)
+if not group_daemon_status:
+    overall_status_ok = False
+overall_daemon = "UP" if group_daemon_status else "Down"
+email_body += f"""
+            <tr>
+                <td>{p2p_group}</td>
+                <td>{overall_daemon}</td>
+            </tr>
+    """
+
+# DOMS Daemon Status
+email_body += """
+    </table>
+    <h4>DOMS Daemon Status</h4>
+    <table border="1">
+        <tr>
+            <th>Application Name</th>
+            <th>Status</th>
+        </tr>
+"""
+# Check DOMS Daemon status
+doms_group = "DOMS"
+daemon_status_list = []
+hosts = zabbix.host.get(groupids=zabbix.hostgroup.get(filter={'name': doms_group})[0]['groupid'])
+for host in hosts:
+    daemon_status = get_daemon_status(host['hostid'])
+    daemon_status_list.extend(daemon_status)
+group_daemon_status = all(status == "1" for status in daemon_status_list)
+if not group_daemon_status:
+    overall_status_ok = False
+overall_daemon = "UP" if group_daemon_status else "Down"
+email_body += f"""
+            <tr>
+                <td>{doms_group}</td>
+                <td>{overall_daemon}</td>
+            </tr>
+    """
+
+# WMS Daemon Status
+email_body += """
+    </table>
+    <h4>WMS Daemon Status</h4>
+    <table border="1">
+        <tr>
+            <th>Application Name</th>
+            <th>Status</th>
+        </tr>
+"""
+# Check WMS1 and WMS2 Daemon status
+wms_groups = ["WMS1", "WMS2"]
+for wms_group in wms_groups:
+    daemon_status_list = []
+    hosts = zabbix.host.get(groupids=zabbix.hostgroup.get(filter={'name': wms_group})[0]['groupid'])
     for host in hosts:
-        daemon_items = get_daemon_status(host['hostid'])
-        daemon_status_list.extend(daemon_items)
-    
-    # Check if all daemon statuses are "1" (UP)
-    group_daemon_status = all(status['lastvalue'] == "1" for status in daemon_status_list)
+        daemon_status = get_daemon_status(host['hostid'])
+        daemon_status_list.extend(daemon_status)
+    group_daemon_status = all(status == "1" for status in daemon_status_list)
     if not group_daemon_status:
         overall_status_ok = False
     overall_daemon = "UP" if group_daemon_status else "Down"
     email_body += f"""
-                <tr>
-                    <td>{p2p_host_group}</td>
-                    <td>{overall_daemon}</td>
-                </tr>
-        """
-except IndexError:
-    # Handle case where P2P host group doesn't exist
+            <tr>
+                <td>{wms_group}</td>
+                <td>{overall_daemon}</td>
+            </tr>
+    """
+
+# PTMS1 w3svc Status
+email_body += """
+    </table>
+    <h4>PTMS1 w3svc Status</h4>
+    <table border="1">
+        <tr>
+            <th>Application Name</th>
+            <th>Status</th>
+        </tr>
+"""
+# Check PTMS1 w3svc status for specific hosts
+ptms1_group = "PTMS1"
+ptms1_hosts = ["P", "q", "r", "s"]
+w3svc_status_list = []
+hosts = zabbix.host.get(groupids=zabbix.hostgroup.get(filter={'name': ptms1_group})[0]['groupid'])
+for host in hosts:
+    if host['name'] in ptms1_hosts:
+        w3svc_status = get_w3svc_status(host['hostid'])
+        w3svc_status_list.extend(w3svc_status)
+group_w3svc_status = all(status == "0" for status in w3svc_status_list)
+if not group_w3svc_status:
     overall_status_ok = False
-    email_body += f"""
-                <tr>
-                    <td>{p2p_host_group}</td>
-                    <td>Host group not found</td>
-                </tr>
-        """
+overall_w3svc = "Running" if group_w3svc_status else "Down"
+email_body += f"""
+            <tr>
+                <td>{ptms1_group}</td>
+                <td>{overall_w3svc}</td>
+            </tr>
+    """
+
+# PTMS2 Tagged Services Status
+email_body += """
+    </table>
+    <h4>PTMS2 Tagged Services Status</h4>
+    <table border="1">
+        <tr>
+            <th>Application Name</th>
+            <th>Status</th>
+        </tr>
+"""
+# Check PTMS2 tagged services status for specific host
+ptms2_group = "PTMS2"
+ptms2_host = "ZZ"
+tagged_status_list = []
+hosts = zabbix.host.get(groupids=zabbix.hostgroup.get(filter={'name': ptms2_group})[0]['groupid'])
+for host in hosts:
+    if host['name'] == ptms2_host:
+        tagged_status = get_ptms2_tagged_status(host['hostid'])
+        tagged_status_list.extend(tagged_status)
+group_tagged_status = all(status == "0" for status in tagged_status_list)
+if not group_tagged_status:
+    overall_status_ok = False
+overall_tagged = "Running" if group_tagged_status else "Down"
+email_body += f"""
+            <tr>
+                <td>{ptms2_group}</td>
+                <td>{overall_tagged}</td>
+            </tr>
+    """
 
 # Determine email subject based on overall status
 status_keyword = "GREEN" if overall_status_ok else "RED"
