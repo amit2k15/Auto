@@ -15,6 +15,7 @@ zabbix.login(zabbix_user, zabbix_password)
 
 # Define host groups and item names
 host_groups = ['A', 'B']
+p2p_host_group = 'P2P'  # New host group for P2P
 item_name = 'proc.num[TwinCATMessengerServer.exe]'
 
 # Function to get service status for a host
@@ -46,6 +47,15 @@ def get_archiving_job_status(host_id):
     items = zabbix.item.get(
         hostids=host_id,
         search={'name': 'Archiving job Status'},
+        output=['itemid', 'name', 'lastvalue']
+    )
+    return [{"name": item["name"], "lastvalue": item["lastvalue"]} for item in items]
+
+# New function to get Daemon status for P2P hosts
+def get_daemon_status(host_id):
+    items = zabbix.item.get(
+        hostids=host_id,
+        search={'name': 'Daemon'},
         output=['itemid', 'name', 'lastvalue']
     )
     return [{"name": item["name"], "lastvalue": item["lastvalue"]} for item in items]
@@ -172,6 +182,46 @@ for group in host_groups:
                 <tr>
                     <td>{group_name}</td>
                     <td>{overall_archiving}</td>
+                </tr>
+        """
+
+# P2P Daemon Status (New Section)
+email_body += """
+    </table>
+    <h4>P2P Daemon Status</h4>
+    <table border="1">
+        <tr>
+            <th>Application Name</th>
+            <th>Status</th>
+        </tr>
+"""
+# Check Daemon status for each host in P2P host group
+daemon_status_list = []
+try:
+    p2p_group_id = zabbix.hostgroup.get(filter={'name': p2p_host_group})[0]['groupid']
+    hosts = zabbix.host.get(groupids=p2p_group_id)
+    for host in hosts:
+        daemon_items = get_daemon_status(host['hostid'])
+        daemon_status_list.extend(daemon_items)
+    
+    # Check if all daemon statuses are "1" (UP)
+    group_daemon_status = all(status['lastvalue'] == "1" for status in daemon_status_list)
+    if not group_daemon_status:
+        overall_status_ok = False
+    overall_daemon = "UP" if group_daemon_status else "Down"
+    email_body += f"""
+                <tr>
+                    <td>{p2p_host_group}</td>
+                    <td>{overall_daemon}</td>
+                </tr>
+        """
+except IndexError:
+    # Handle case where P2P host group doesn't exist
+    overall_status_ok = False
+    email_body += f"""
+                <tr>
+                    <td>{p2p_host_group}</td>
+                    <td>Host group not found</td>
                 </tr>
         """
 
