@@ -1,0 +1,118 @@
+from pyzabbix import ZabbixAPI
+from datetime import datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+import smtplib
+
+# Zabbix API configuration
+zabbix_url = 'http://zabbix.com/zabbix'
+zabbix_user = ''
+zabbix_password = ''
+
+# Connect to Zabbix API
+zabbix = ZabbixAPI(zabbix_url)
+zabbix.login(zabbix_user, zabbix_password)
+
+# Define host groups and item names
+host_groups = ['A', 'B']
+item_name = 'proc.num[TwinCATMessengerServer.exe]'
+
+# Function to get service status for a host
+def get_service_status(host_id):
+    items = zabbix.item.get(hostids=host_id, search={'key_': item_name})
+    if items:
+        item_id = items[0]['itemid']
+        item_value = zabbix.history.get(itemids=item_id, output='extend', limit=1, sortfield='clock', sortorder='DESC')[0]['value']
+        return item_value
+    else:
+        return None
+
+# Function to get web items for a host
+def get_web_items(host_id):
+    web_items = zabbix.item.get(hostids=host_id, webitems=True, output=['itemid', 'name', 'lastvalue'])
+    return [{"name": item["name"], "lastvalue": item["lastvalue"]} for item in web_items if "response code" in item["name"].lower()]
+
+# Updated Function to get QMSI service status for specific item keys
+def get_qmsi_status(host_id):
+    # List of item keys to check
+    item_keys = ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', 's', 'd']
+    items = zabbix.item.get(
+        hostids=host_id,
+        output=['itemid', 'key_', 'name', 'lastvalue']
+    )
+    # Filter items by the specified keys and return their statuses
+    return [{"name": item["key_"], "lastvalue": item["lastvalue"]} 
+            for item in items if item["key_"] in item_keys]
+
+# Function to get Archiving Job status
+def get_archiving_job_status(host_id):
+    items = zabbix.item.get(
+        hostids=host_id,
+        search={'name': 'Archiving job Status'},
+        output=['itemid', 'name', 'lastvalue']
+    )
+    return [{"name": item["name"], "lastvalue": item["lastvalue"]} for item in items]
+
+# Function to get Daemon status for a host
+def get_daemon_status(host_id):
+    items = zabbix.item.get(
+        hostids=host_id,
+        search={'name': 'Daemon'},
+        output=['itemid', 'name', 'lastvalue']
+    )
+    return [item["lastvalue"] for item in items if item["name"].startswith("Daemon")]
+
+# Function to get w3svc status for a host
+def get_w3svc_status(host_id):
+    items = zabbix.item.get(
+        hostids=host_id,
+        search={'name': 'w3svc'},
+        output=['itemid', 'name', 'lastvalue']
+    )
+    return [item["lastvalue"] for item in items if "w3svc" in item["name"]]
+
+# Function to get PTMS2 tagged services status
+def get_ptms2_tagged_status(host_id):
+    items = zabbix.item.get(
+        hostids=host_id,
+        tags=[{"tag": "Application", "value": "Services"}],
+        output=['itemid', 'name', 'lastvalue']
+    )
+    return [item["lastvalue"] for item in items]
+
+# Initialize overall status tracking
+overall_status_ok = True
+
+# [Rest of the code remains exactly the same until the QMSI Services section]
+
+# QMSI Services
+email_body += """
+    </table>
+    <h4>QMSI Services</h4>
+    <table border="1">
+        <tr>
+            <th>Application Name</th>
+            <th>Status</th>
+        </tr>
+"""
+# Check QMSI service status for each host in each host group
+for group in host_groups:
+    qmsi_status_list = []
+    hosts = zabbix.host.get(groupids=zabbix.hostgroup.get(filter={'name': group})[0]['groupid'])
+    for host in hosts:
+        qmsi_items = get_qmsi_status(host['hostid'])
+        qmsi_status_list.extend(qmsi_items)
+    # Updated logic: service is UP if lastvalue is "0", Down otherwise
+    group_qmsi_status = all(status['lastvalue'] == "0" for status in qmsi_status_list)
+    if not group_qmsi_status:
+        overall_status_ok = False
+    overall_qmsi = "UP" if group_qmsi_status else "Down"
+    group_name = zabbix.hostgroup.get(filter={'name': group})[0]['name']
+    email_body += f"""
+                <tr>
+                    <td>{group_name}</td>
+                    <td>{overall_qmsi}</td>
+                </tr>
+        """
+
+# [Rest of the code remains exactly the same]
