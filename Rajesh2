@@ -1,0 +1,111 @@
+import pandas as pd
+from pyzabbix import ZabbixAPI
+from datetime import datetime
+
+# Zabbix API credentials
+ZABBIX_SERVER = 'http://your_zabbix_server_url'
+ZABBIX_USER = 'your_username'
+ZABBIX_PASSWORD = 'your_password'
+
+# Configuration
+HOSTGROUP_NAME = 'Your_Hostgroup_Name'
+START_DATE = '2025-01-01 00:00:00'
+END_DATE = '2025-03-31 23:59:59'
+OUTPUT_FILE = 'host_utilization_q1_2025.xlsx'
+
+# Connect to Zabbix API
+zapi = ZabbixAPI(ZABBIX_SERVER)
+zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
+print(f"Connected to Zabbix API Version {zapi.api_version()}")
+
+# Convert dates to timestamps
+time_from = int(datetime.strptime(START_DATE, '%Y-%m-%d %H:%M:%S').timestamp())
+time_to = int(datetime.strptime(END_DATE, '%Y-%m-%d %H:%M:%S').timestamp())
+
+# Get hostgroup ID
+hostgroup = zapi.hostgroup.get(filter={'name': HOSTGROUP_NAME})
+if not hostgroup:
+    raise ValueError(f"Hostgroup '{HOSTGROUP_NAME}' not found")
+hostgroup_id = hostgroup[0]['groupid']
+
+# Get all hosts in the hostgroup
+hosts = zapi.host.get(groupids=hostgroup_id, output=['hostid', 'name'])
+if not hosts:
+    raise ValueError(f"No hosts found in hostgroup '{HOSTGROUP_NAME}'")
+
+# Prepare results list
+results = []
+
+# Metrics to collect
+metrics = {
+    'cpu_avg': {
+        'key': 'system.cpu.util',
+        'func': 'avg',
+        'output_name': 'Q1-Avg CPU'
+    },
+    'cpu_max': {
+        'key': 'system.cpu.util',
+        'func': 'max',
+        'output_name': 'Q1-Max CPU'
+    },
+    'memory_avg': {
+        'key': 'vm.memory.utilization',
+        'func': 'avg',
+        'output_name': 'Q1-Avg Memory'
+    },
+    'memory_max': {
+        'key': 'vm.memory.utilization',
+        'func': 'max',
+        'output_name': 'Q1-Max Memory'
+    }
+}
+
+for host in hosts:
+    host_data = {'Hostname': host['name']}
+    
+    for metric_name, metric_config in metrics.items():
+        # Get item ID
+        items = zapi.item.get(
+            hostids=host['hostid'],
+            search={'key_': metric_config['key']},
+            output=['itemid']
+        )
+        
+        if not items:
+            host_data[metric_config['output_name'] = 'N/A'
+            continue
+            
+        item_id = items[0]['itemid']
+        
+        # Get aggregated value
+        agg_value = zapi.trend.get(
+            itemids=item_id,
+            time_from=time_from,
+            time_to=time_to,
+            output=['value_avg', 'value_max'],
+            selectFunction=metric_config['func']
+        )
+        
+        if not agg_value:
+            host_data[metric_config['output_name'] = 'N/A'
+            continue
+            
+        if metric_config['func'] == 'avg':
+            value = agg_value[0]['value_avg']
+        else:  # max
+            value = agg_value[0]['value_max']
+            
+        host_data[metric_config['output_name'] = float(value) if value else 'N/A'
+    
+    results.append(host_data)
+
+# Create DataFrame and save to Excel
+df = pd.DataFrame(results)
+df = df[['Hostname', 'Q1-Avg CPU', 'Q1-Max CPU', 'Q1-Avg Memory', 'Q1-Max Memory']]
+
+# Save to Excel
+df.to_excel(OUTPUT_FILE, index=False)
+print(f"Data saved to {OUTPUT_FILE}")
+
+# Logout from Zabbix API
+zapi.user.logout()
