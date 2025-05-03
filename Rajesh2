@@ -3,24 +3,28 @@ from pyzabbix import ZabbixAPI
 from datetime import datetime
 
 # Zabbix API credentials
-ZABBIX_SERVER = 'http://your_zabbix_server_url'
+ZABBIX_URL = 'http://your_zabbix_server_url/zabbix'
 ZABBIX_USER = 'your_username'
 ZABBIX_PASSWORD = 'your_password'
 
 # Configuration
-HOSTGROUP_NAME = 'Your_Hostgroup_Name'
+HOSTGROUP_NAME = 'Your Hostgroup Name'
 START_DATE = '2025-01-01 00:00:00'
 END_DATE = '2025-03-31 23:59:59'
 OUTPUT_FILE = 'host_utilization_q1_2025.xlsx'
 
 # Connect to Zabbix API
-zapi = ZabbixAPI(ZABBIX_SERVER)
+zapi = ZabbixAPI(ZABBIX_URL)
 zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
 print(f"Connected to Zabbix API Version {zapi.api_version()}")
 
-# Convert dates to timestamps
-time_from = int(datetime.strptime(START_DATE, '%Y-%m-%d %H:%M:%S').timestamp())
-time_to = int(datetime.strptime(END_DATE, '%Y-%m-%d %H:%M:%S').timestamp())
+def convert_to_timestamp(date_str):
+    """Convert date string to UNIX timestamp"""
+    return int(datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S').timestamp())
+
+# Get time range in timestamps
+time_from = convert_to_timestamp(START_DATE)
+time_till = convert_to_timestamp(END_DATE)
 
 # Get hostgroup ID
 hostgroup = zapi.hostgroup.get(filter={'name': HOSTGROUP_NAME})
@@ -36,76 +40,63 @@ if not hosts:
 # Prepare results list
 results = []
 
-# Metrics to collect
-metrics = {
-    'cpu_avg': {
-        'key': 'system.cpu.util',
-        'func': 'avg',
-        'output_name': 'Q1-Avg CPU'
-    },
-    'cpu_max': {
-        'key': 'system.cpu.util',
-        'func': 'max',
-        'output_name': 'Q1-Max CPU'
-    },
-    'memory_avg': {
-        'key': 'vm.memory.utilization',
-        'func': 'avg',
-        'output_name': 'Q1-Avg Memory'
-    },
-    'memory_max': {
-        'key': 'vm.memory.utilization',
-        'func': 'max',
-        'output_name': 'Q1-Max Memory'
-    }
-}
-
 for host in hosts:
-    host_data = {'Hostname': host['name']}
+    hostname = host['name']
+    hostid = host['hostid']
     
-    for metric_name, metric_config in metrics.items():
-        # Get item ID
-        items = zapi.item.get(
-            hostids=host['hostid'],
-            search={'key_': metric_config['key']},
-            output=['itemid']
-        )
-        
-        if not items:
-            host_data[metric_config['output_name'] = 'N/A'
-            continue
-            
-        item_id = items[0]['itemid']
-        
-        # Get aggregated value
-        agg_value = zapi.trend.get(
-            itemids=item_id,
-            time_from=time_from,
-            time_to=time_to,
-            output=['value_avg', 'value_max'],
-            selectFunction=metric_config['func']
-        )
-        
-        if not agg_value:
-            host_data[metric_config['output_name'] = 'N/A'
-            continue
-            
-        if metric_config['func'] == 'avg':
-            value = agg_value[0]['value_avg']
-        else:  # max
-            value = agg_value[0]['value_max']
-            
-        host_data[metric_config['output_name'] = float(value) if value else 'N/A'
+    print(f"Processing host: {hostname}")
     
-    results.append(host_data)
+    # Get CPU utilization metrics (system.cpu.util)
+    cpu_data = zapi.history.get(
+        hostids=hostid,
+        time_from=time_from,
+        time_till=time_till,
+        output='extend',
+        history=0,  # float values
+        item_key='system.cpu.util'
+    )
+    
+    # Get Memory utilization metrics (vm.memory.utilization)
+    memory_data = zapi.history.get(
+        hostids=hostid,
+        time_from=time_from,
+        time_till=time_till,
+        output='extend',
+        history=0,  # float values
+        item_key='vm.memory.utilization'
+    )
+    
+    # Process CPU data
+    if cpu_data:
+        cpu_values = [float(item['value']) for item in cpu_data]
+        avg_cpu = sum(cpu_values) / len(cpu_values)
+        max_cpu = max(cpu_values)
+    else:
+        avg_cpu = 0
+        max_cpu = 0
+    
+    # Process Memory data
+    if memory_data:
+        memory_values = [float(item['value']) for item in memory_data]
+        avg_memory = sum(memory_values) / len(memory_values)
+        max_memory = max(memory_values)
+    else:
+        avg_memory = 0
+        max_memory = 0
+    
+    results.append({
+        'Hostname': hostname,
+        'Q1-Avg CPU': round(avg_cpu, 2),
+        'Q1-Max CPU': round(max_cpu, 2),
+        'Q1-Avg Memory': round(avg_memory, 2),
+        'Q1-Max Memory': round(max_memory, 2)
+    })
 
 # Create DataFrame and save to Excel
 df = pd.DataFrame(results)
-df = df[['Hostname', 'Q1-Avg CPU', 'Q1-Max CPU', 'Q1-Avg Memory', 'Q1-Max Memory']]
+df.to_excel(OUTPUT_FILE, index=False, sheet_name='Q1 2025 Utilization')
 
-# Save to Excel
-df.to_excel(OUTPUT_FILE, index=False)
-print(f"Data saved to {OUTPUT_FILE}")
+print(f"Report generated successfully: {OUTPUT_FILE}")
 
 # Logout from Zabbix API
 zapi.user.logout()
