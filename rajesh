@@ -1,0 +1,134 @@
+from pyzabbix import ZabbixAPI
+from openpyxl import Workbook
+from datetime import datetime
+import time
+
+# Zabbix API credentials
+ZABBIX_SERVER = "http://your_zabbix_server_url/zabbix"
+ZABBIX_USER = "your_username"
+ZABBIX_PASSWORD = "your_password"
+
+# Configuration
+HOSTGROUP_NAME = "Your Hostgroup Name"  # Replace with your hostgroup name
+START_DATE = "2025-01-01 00:00:00"
+END_DATE = "2025-03-31 23:59:59"
+OUTPUT_FILE = "host_utilization_report.xlsx"
+
+# Convert dates to UNIX timestamps
+def date_to_timestamp(date_str):
+    return int(time.mktime(datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S").timetuple()))
+
+# Connect to Zabbix API
+zapi = ZabbixAPI(ZABBIX_SERVER)
+zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
+print("Connected to Zabbix API Version %s" % zapi.api_version())
+
+try:
+    # Get hostgroup ID
+    hostgroup = zapi.hostgroup.get(filter={"name": HOSTGROUP_NAME})
+    if not hostgroup:
+        print(f"Hostgroup '{HOSTGROUP_NAME}' not found")
+        exit()
+    
+    hostgroup_id = hostgroup[0]['groupid']
+    
+    # Get all hosts in the hostgroup
+    hosts = zapi.host.get(groupids=hostgroup_id, output=['hostid', 'name'])
+    if not hosts:
+        print(f"No hosts found in hostgroup '{HOSTGROUP_NAME}'")
+        exit()
+    
+    # Create Excel workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Utilization Report"
+    
+    # Write headers
+    headers = [
+        "Host Name",
+        "Avg CPU Utilization (%)",
+        "Avg Memory Utilization (%)",
+        "CPU Item ID",
+        "Memory Item ID"
+    ]
+    ws.append(headers)
+    
+    # Convert date range to timestamps
+    time_from = date_to_timestamp(START_DATE)
+    time_till = date_to_timestamp(END_DATE)
+    
+    for host in hosts:
+        host_id = host['hostid']
+        host_name = host['name']
+        
+        print(f"Processing host: {host_name}")
+        
+        # Get CPU utilization item (system.cpu.util)
+        cpu_items = zapi.item.get(
+            hostids=host_id,
+            search={"key_": "system.cpu.util"},
+            output=['itemid', 'name']
+        )
+        
+        # Get Memory utilization item (vm.memory.size[pavailable])
+        mem_items = zapi.item.get(
+            hostids=host_id,
+            search={"key_": "vm.memory.size[pavailable]"},
+            output=['itemid', 'name']
+        )
+        
+        if not cpu_items or not mem_items:
+            print(f"  Skipping host {host_name} - missing CPU or Memory items")
+            continue
+        
+        cpu_item_id = cpu_items[0]['itemid']
+        mem_item_id = mem_items[0]['itemid']
+        
+        # Get CPU utilization history (avg)
+        cpu_history = zapi.history.get(
+            itemids=cpu_item_id,
+            time_from=time_from,
+            time_till=time_till,
+            output='extend',
+            history=0,  # numeric float
+            sortfield='clock',
+            sortorder='ASC'
+        )
+        
+        # Get Memory utilization history (avg)
+        mem_history = zapi.history.get(
+            itemids=mem_item_id,
+            time_from=time_from,
+            time_till=time_till,
+            output='extend',
+            history=0,  # numeric float
+            sortfield='clock',
+            sortorder='ASC'
+        )
+        
+        # Calculate averages
+        if cpu_history:
+            cpu_avg = sum(float(h['value']) for h in cpu_history) / len(cpu_history)
+            # Memory is pavailable (percentage available), so we convert to utilization
+            mem_avg = 100 - (sum(float(h['value']) for h in mem_history) / len(mem_history) if mem_history else 0
+        else:
+            cpu_avg = 0
+            mem_avg = 0
+        
+        # Write to Excel
+        ws.append([
+            host_name,
+            round(cpu_avg, 2),
+            round(mem_avg, 2),
+            cpu_item_id,
+            mem_item_id
+        ])
+    
+    # Save the Excel file
+    wb.save(OUTPUT_FILE)
+    print(f"Report saved to {OUTPUT_FILE}")
+
+finally:
+    # Logout from Zabbix API
+    zapi.user.logout()
+    print("Disconnected from Zabbix API")
