@@ -1,179 +1,103 @@
 from pyzabbix import ZabbixAPI
 from datetime import datetime
-import pandas as pd
 import openpyxl
-import time
 
-# Zabbix API credentials
-ZABBIX_URL = 'http://your_zabbix_server_url/zabbix'
+# Zabbix credentials and host group
+ZABBIX_URL = 'https://your-zabbix-url/zabbix'
 ZABBIX_USER = 'your_username'
 ZABBIX_PASSWORD = 'your_password'
+HOSTGROUP_NAME = 'YourHostGroupName'
 
-# Configuration
-HOSTGROUP_NAME = 'Your Hostgroup Name'  # Replace with your hostgroup name
-START_DATE = '2025-01-01 00:00:00'
-END_DATE = '2025-03-31 23:59:59'
-OUTPUT_FILE = 'host_metrics_q1_2025.xlsx'
+# Time range: Jan 1 - Mar 31, 2025
+start_time = int(datetime(2025, 1, 1).timestamp())
+end_time = int(datetime(2025, 3, 31, 23, 59, 59).timestamp())
 
-# Convert dates to timestamps
-time_from = int(time.mktime(datetime.strptime(START_DATE, '%Y-%m-%d %H:%M:%S').timetuple()))
-time_to = int(time.mktime(datetime.strptime(END_DATE, '%Y-%m-%d %H:%M:%S').timetuple()))
-
-# Connect to Zabbix API
+# Connect to Zabbix
 zapi = ZabbixAPI(ZABBIX_URL)
 zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
-print("Connected to Zabbix API Version %s" % zapi.api_version())
 
-# Get hostgroup ID
-hostgroups = zapi.hostgroup.get(filter={'name': HOSTGROUP_NAME})
-if not hostgroups:
-    print(f"Hostgroup '{HOSTGROUP_NAME}' not found")
-    exit()
+# Get host group ID
+hostgroup = zapi.hostgroup.get(filter={"name": HOSTGROUP_NAME})
+if not hostgroup:
+    print("Host group not found.")
+    exit(1)
+groupid = hostgroup[0]['groupid']
 
-hostgroup_id = hostgroups[0]['groupid']
+# Get hosts in group
+hosts = zapi.host.get(groupids=groupid, output=["hostid", "name"])
 
-# Get all hosts in the hostgroup
-hosts = zapi.host.get(groupids=hostgroup_id, output=['hostid', 'name'])
-if not hosts:
-    print(f"No hosts found in hostgroup '{HOSTGROUP_NAME}'")
-    exit()
-
-# Prepare results list
 results = []
 
-# For each host, get CPU and memory metrics
 for host in hosts:
     host_id = host['hostid']
-    host_name = host['name']
-    
-    print(f"Processing host: {host_name}")
-    
-    # Get CPU utilization metrics
-    cpu_item = zapi.item.get(hostids=host_id, search={'key_': 'system.cpu.util'}, output=['itemid'])
-    if cpu_item:
-        cpu_item_id = cpu_item[0]['itemid']
-        
-        # Get average CPU utilization
-        cpu_avg = zapi.history.get(
-            itemids=cpu_item_id,
-            time_from=time_from,
-            time_to=time_to,
-            output='extend',
-            history=0,
-            limit=50000
-        )
-        
-        if cpu_avg:
-            cpu_avg_values = [float(x['value']) for x in cpu_avg]
-            cpu_avg_q1 = sum(cpu_avg_values) / len(cpu_avg_values)
-        else:
-            cpu_avg_q1 = 0
-        
-        # Get max CPU utilization
-        cpu_max = zapi.history.get(
-            itemids=cpu_item_id,
-            time_from=time_from,
-            time_to=time_to,
-            output='extend',
-            history=0,
-            limit=50000,
-            sortfield='value',
-            sortorder='DESC',
-            limit=1
-        )
-        
-        cpu_max_q1 = float(cpu_max[0]['value']) if cpu_max else 0
+    hostname = host['name']
+
+    # Get CPU item
+    cpu_items = zapi.item.get(
+        hostids=host_id,
+        search={"key_": "system.cpu.util[,user]"},
+        filter={"status": "0"},
+        output=["itemid", "name"]
+    )
+
+    # Get Memory Used and Total
+    mem_used_items = zapi.item.get(
+        hostids=host_id,
+        search={"key_": "vm.memory.size[used]"},
+        filter={"status": "0"},
+        output=["itemid"]
+    )
+    mem_total_items = zapi.item.get(
+        hostids=host_id,
+        search={"key_": "vm.memory.size[total]"},
+        filter={"status": "0"},
+        output=["itemid"]
+    )
+
+    if not cpu_items or not mem_used_items or not mem_total_items:
+        continue
+
+    cpu_itemid = cpu_items[0]['itemid']
+    mem_used_id = mem_used_items[0]['itemid']
+    mem_total_id = mem_total_items[0]['itemid']
+
+    # CPU History
+    cpu_data = zapi.history.get(itemids=cpu_itemid, time_from=start_time, time_till=end_time, history=0, limit=10000)
+    cpu_values = [float(item['value']) for item in cpu_data]
+
+    if cpu_values:
+        avg_cpu = round(sum(cpu_values) / len(cpu_values), 2)
+        max_cpu = round(max(cpu_values), 2)
     else:
-        cpu_avg_q1 = 0
-        cpu_max_q1 = 0
-    
-    # Get Memory utilization metrics
-    mem_item = zapi.item.get(hostids=host_id, search={'key_': 'vm.memory.utilization'}, output=['itemid'])
-    if not mem_item:
-        # Try alternative memory item if the first one doesn't exist
-        mem_item = zapi.item.get(hostids=host_id, search={'key_': 'vm.memory.size[pavailable]'}, output=['itemid'])
-    
-    if mem_item:
-        mem_item_id = mem_item[0]['itemid']
-        
-        # Get average Memory utilization
-        mem_avg = zapi.history.get(
-            itemids=mem_item_id,
-            time_from=time_from,
-            time_to=time_to,
-            output='extend',
-            history=0,
-            limit=50000
-        )
-        
-        if mem_avg:
-            # For pavailable, we need to convert to utilization (100 - pavailable)
-            if 'pavailable' in mem_item[0]['key_']:
-                mem_avg_values = [100 - float(x['value']) for x in mem_avg]
-            else:
-                mem_avg_values = [float(x['value']) for x in mem_avg]
-            
-            mem_avg_q1 = sum(mem_avg_values) / len(mem_avg_values)
-        else:
-            mem_avg_q1 = 0
-        
-        # Get max Memory utilization
-        mem_max = zapi.history.get(
-            itemids=mem_item_id,
-            time_from=time_from,
-            time_to=time_to,
-            output='extend',
-            history=0,
-            limit=50000,
-            sortfield='value',
-            sortorder='DESC',
-            limit=1
-        )
-        
-        if mem_max:
-            if 'pavailable' in mem_item[0]['key_']:
-                mem_max_q1 = 100 - float(mem_max[0]['value'])
-            else:
-                mem_max_q1 = float(mem_max[0]['value'])
-        else:
-            mem_max_q1 = 0
+        avg_cpu = max_cpu = 'NA'
+
+    # Memory History
+    mem_used_data = zapi.history.get(itemids=mem_used_id, time_from=start_time, time_till=end_time, history=3, limit=10000)
+    mem_total_data = zapi.history.get(itemids=mem_total_id, time_from=start_time, time_till=end_time, history=3, limit=10000)
+
+    used_vals = {d['clock']: float(d['value']) for d in mem_used_data}
+    total_vals = {d['clock']: float(d['value']) for d in mem_total_data}
+
+    common_clocks = set(used_vals.keys()).intersection(set(total_vals.keys()))
+
+    mem_usage = [(used_vals[clk] / total_vals[clk]) * 100 for clk in common_clocks if total_vals[clk] > 0]
+
+    if mem_usage:
+        avg_mem = round(sum(mem_usage) / len(mem_usage), 2)
+        max_mem = round(max(mem_usage), 2)
     else:
-        mem_avg_q1 = 0
-        mem_max_q1 = 0
-    
-    # Add to results
-    results.append({
-        'Hostname': host_name,
-        'Q1-Avg CPU': round(cpu_avg_q1, 2),
-        'Q1-Max CPU': round(cpu_max_q1, 2),
-        'Q1-Avg Memory': round(mem_avg_q1, 2),
-        'Q1-Max Memory': round(mem_max_q1, 2)
-    })
+        avg_mem = max_mem = 'NA'
 
-# Create DataFrame and save to Excel
-df = pd.DataFrame(results)
-df = df[['Hostname', 'Q1-Avg CPU', 'Q1-Max CPU', 'Q1-Avg Memory', 'Q1-Max Memory']]
+    results.append([hostname, avg_cpu, max_cpu, avg_mem, max_mem])
 
-# Save to Excel
-writer = pd.ExcelWriter(OUTPUT_FILE, engine='openpyxl')
-df.to_excel(writer, index=False, sheet_name='Host Metrics')
+# Write to Excel
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.title = "Q1 CPU and Memory Report"
+ws.append(["Hostname", "Q1-Avg CPU", "Q1-Max CPU", "Q1-Avg Memory", "Q1-Max Memory"])
 
-# Adjust column widths
-worksheet = writer.sheets['Host Metrics']
-for column in worksheet.columns:
-    max_length = 0
-    column = [cell for cell in column]
-    for cell in column:
-        try:
-            if len(str(cell.value)) > max_length:
-                max_length = len(cell.value)
-        except:
-            pass
-    adjusted_width = (max_length + 2)
-    worksheet.column_dimensions[column[0].column_letter].width = adjusted_width
+for row in results:
+    ws.append(row)
 
-writer.save()
-print(f"Report saved to {OUTPUT_FILE}")
-
-# Logout from Zabbix API
-zapi.user.logout()
+wb.save("zabbix_q1_cpu_memory_report.xlsx")
+print("Report saved as zabbix_q1_cpu_memory_report.xlsx")
