@@ -1,103 +1,82 @@
 from pyzabbix import ZabbixAPI
-from datetime import datetime
 import openpyxl
+from datetime import datetime
+import statistics
 
-# Zabbix credentials and host group
-ZABBIX_URL = 'https://your-zabbix-url/zabbix'
-ZABBIX_USER = 'your_username'
+# Zabbix connection settings
+ZABBIX_URL = 'https://your-zabbix-server-url/zabbix'
+ZABBIX_USERNAME = 'your_username'
 ZABBIX_PASSWORD = 'your_password'
-HOSTGROUP_NAME = 'YourHostGroupName'
 
-# Time range: Jan 1 - Mar 31, 2025
-start_time = int(datetime(2025, 1, 1).timestamp())
-end_time = int(datetime(2025, 3, 31, 23, 59, 59).timestamp())
+# Time interval (Q1 2025)
+START_DATE = "2025-01-01 00:00:00"
+END_DATE = "2025-03-31 23:59:59"
+start_time = int(datetime.strptime(START_DATE, "%Y-%m-%d %H:%M:%S").timestamp())
+end_time = int(datetime.strptime(END_DATE, "%Y-%m-%d %H:%M:%S").timestamp())
 
-# Connect to Zabbix
+# Metrics keys
+CPU_KEY = 'system.cpu.util'
+MEMORY_KEY = 'vm.memory.utilization'
+
+# Host group
+HOSTGROUP_NAME = 'Your Host Group Name'
+
+# Connect to Zabbix API
 zapi = ZabbixAPI(ZABBIX_URL)
-zapi.login(ZABBIX_USER, ZABBIX_PASSWORD)
+zapi.login(ZABBIX_USERNAME, ZABBIX_PASSWORD)
 
 # Get host group ID
-hostgroup = zapi.hostgroup.get(filter={"name": HOSTGROUP_NAME})
-if not hostgroup:
-    print("Host group not found.")
+hostgroups = zapi.hostgroup.get(filter={"name": HOSTGROUP_NAME})
+if not hostgroups:
+    print(f"Host group '{HOSTGROUP_NAME}' not found.")
     exit(1)
-groupid = hostgroup[0]['groupid']
+hostgroup_id = hostgroups[0]['groupid']
 
-# Get hosts in group
-hosts = zapi.host.get(groupids=groupid, output=["hostid", "name"])
+# Get hosts in host group
+hosts = zapi.host.get(groupids=hostgroup_id, output=["hostid", "host"])
 
-results = []
+# Create Excel workbook
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.title = "Q1 Utilization"
+ws.append(["Hostname", "Q1-Avg CPU", "Q1-Max CPU", "Q1-Avg Memory", "Q1-Max Memory"])
 
+# Process each host
 for host in hosts:
-    host_id = host['hostid']
-    hostname = host['name']
+    hostname = host['host']
+    hostid = host['hostid']
 
-    # Get CPU item
-    cpu_items = zapi.item.get(
-        hostids=host_id,
-        search={"key_": "system.cpu.util[,user]"},
-        filter={"status": "0"},
-        output=["itemid", "name"]
-    )
+    # Fetch item IDs for CPU and Memory
+    cpu_items = zapi.item.get(hostids=hostid, search={"key_": CPU_KEY}, output=["itemid"])
+    mem_items = zapi.item.get(hostids=hostid, search={"key_": MEMORY_KEY}, output=["itemid"])
 
-    # Get Memory Used and Total
-    mem_used_items = zapi.item.get(
-        hostids=host_id,
-        search={"key_": "vm.memory.size[used]"},
-        filter={"status": "0"},
-        output=["itemid"]
-    )
-    mem_total_items = zapi.item.get(
-        hostids=host_id,
-        search={"key_": "vm.memory.size[total]"},
-        filter={"status": "0"},
-        output=["itemid"]
-    )
-
-    if not cpu_items or not mem_used_items or not mem_total_items:
+    if not cpu_items or not mem_items:
+        print(f"Skipping {hostname} (missing CPU or Memory item)")
         continue
 
     cpu_itemid = cpu_items[0]['itemid']
-    mem_used_id = mem_used_items[0]['itemid']
-    mem_total_id = mem_total_items[0]['itemid']
+    mem_itemid = mem_items[0]['itemid']
 
-    # CPU History
-    cpu_data = zapi.history.get(itemids=cpu_itemid, time_from=start_time, time_till=end_time, history=0, limit=10000)
-    cpu_values = [float(item['value']) for item in cpu_data]
+    # Fetch historical data
+    cpu_history = zapi.history.get(itemids=cpu_itemid, time_from=start_time, time_till=end_time, history=0, output="extend", limit=10000)
+    mem_history = zapi.history.get(itemids=mem_itemid, time_from=start_time, time_till=end_time, history=0, output="extend", limit=10000)
 
-    if cpu_values:
-        avg_cpu = round(sum(cpu_values) / len(cpu_values), 2)
+    # Extract values
+    cpu_values = [float(point['value']) for point in cpu_history]
+    mem_values = [float(point['value']) for point in mem_history]
+
+    if cpu_values and mem_values:
+        avg_cpu = round(statistics.mean(cpu_values), 2)
         max_cpu = round(max(cpu_values), 2)
+        avg_mem = round(statistics.mean(mem_values), 2)
+        max_mem = round(max(mem_values), 2)
     else:
-        avg_cpu = max_cpu = 'NA'
+        avg_cpu = max_cpu = avg_mem = max_mem = "N/A"
 
-    # Memory History
-    mem_used_data = zapi.history.get(itemids=mem_used_id, time_from=start_time, time_till=end_time, history=3, limit=10000)
-    mem_total_data = zapi.history.get(itemids=mem_total_id, time_from=start_time, time_till=end_time, history=3, limit=10000)
+    # Write to Excel
+    ws.append([hostname, avg_cpu, max_cpu, avg_mem, max_mem])
 
-    used_vals = {d['clock']: float(d['value']) for d in mem_used_data}
-    total_vals = {d['clock']: float(d['value']) for d in mem_total_data}
-
-    common_clocks = set(used_vals.keys()).intersection(set(total_vals.keys()))
-
-    mem_usage = [(used_vals[clk] / total_vals[clk]) * 100 for clk in common_clocks if total_vals[clk] > 0]
-
-    if mem_usage:
-        avg_mem = round(sum(mem_usage) / len(mem_usage), 2)
-        max_mem = round(max(mem_usage), 2)
-    else:
-        avg_mem = max_mem = 'NA'
-
-    results.append([hostname, avg_cpu, max_cpu, avg_mem, max_mem])
-
-# Write to Excel
-wb = openpyxl.Workbook()
-ws = wb.active
-ws.title = "Q1 CPU and Memory Report"
-ws.append(["Hostname", "Q1-Avg CPU", "Q1-Max CPU", "Q1-Avg Memory", "Q1-Max Memory"])
-
-for row in results:
-    ws.append(row)
-
-wb.save("zabbix_q1_cpu_memory_report.xlsx")
-print("Report saved as zabbix_q1_cpu_memory_report.xlsx")
+# Save workbook
+output_file = "Q1_Utilization_Report.xlsx"
+wb.save(output_file)
+print(f"Report saved to {output_file}")
