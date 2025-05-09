@@ -1,0 +1,26 @@
+# NEW list for groups to check Archiving Job Status
+archiving_groups = ['ef', 'ge', 'hh']
+
+# Check Archiving Job status for each host in each host group
+for group in archiving_groups:
+    archiving_status_list = []
+    group_info = zabbix.hostgroup.get(filter={'name': group})
+    if not group_info:
+        continue
+    group_id = group_info[0]['groupid']
+    hosts = zabbix.host.get(groupids=group_id)
+    for host in hosts:
+        archiving_items = get_archiving_job_status(host['hostid'])
+        archiving_status_list.extend(archiving_items)
+    # Status is "Running" if 0, "Error" if 1
+    group_archiving_status = all(status['lastvalue'] == "0" for status in archiving_status_list)
+    if not group_archiving_status:
+        overall_status_ok = False
+    overall_archiving = "Running" if group_archiving_status else "Error"
+    group_name = group_info[0]['name']
+    email_body += f"""
+                <tr>
+                    <td>{group_name}</td>
+                    <td>{overall_archiving}</td>
+                </tr>
+        """
