@@ -1,0 +1,22 @@
+#!/bin/bash
+
+echo "Sudo Users and Last Password Change Dates"
+echo "-----------------------------------------"
+
+# Get list of sudo users from /etc/sudoers and /etc/sudoers.d
+sudo_users=$(awk '/^User_Alias|ALL/ && !/^#/' /etc/sudoers /etc/sudoers.d/* 2>/dev/null | \
+    grep -oE '[a-zA-Z0-9]+' | sort -u)
+
+# Also check if user is in 'wheel' or 'sudo' group
+group_users=$(getent group wheel sudo | awk -F: '{print $4}' | tr ',' '\n' | sort -u)
+
+# Combine and deduplicate user list
+all_sudo_users=$(echo -e "$sudo_users\n$group_users" | sort -u)
+
+# Print username and last password change date
+for user in $all_sudo_users; do
+    if id "$user" &>/dev/null; then
+        last_change=$(chage -l "$user" | grep "Last password change" | cut -d: -f2 | xargs)
+        echo "User: $user | Last Password Change: $last_change"
+    fi
+done
